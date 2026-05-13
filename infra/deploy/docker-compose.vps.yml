@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finance_bot}
+      POSTGRES_USER: ${POSTGRES_USER:-finance_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finance_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../infra/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finance_user} -d ${POSTGRES_DB:-finance_bot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  api:
+    build:
+      context: ../../apps/api
+      dockerfile: Dockerfile
+    container_name: finance_api
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL_VPS:-postgres://finance_user:finance_pass@postgres:5432/finance_bot}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: finance_caddy
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../apps/admin:/srv/admin:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

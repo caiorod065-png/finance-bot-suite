@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Finance Bot Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section id="loginView" class="login-view">
+        <article class="login-card">
+          <p class="eyebrow">Finance Bot Suite</p>
+          <h1>Painel Administrativo</h1>
+          <p class="subtle">Acesse com seu usuário administrador para gerenciar clientes, cobranças e atividade em tempo real.</p>
+          <label for="adminEmail">Email</label>
+          <input id="adminEmail" type="email" placeholder="voce@dominio.com" autocomplete="email" />
+          <label for="adminPassword">Senha</label>
+          <input id="adminPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+          <button id="loginBtn" class="primary">Entrar</button>
+          <p id="sessionInfo" class="session-info">Faça login para acessar o painel.</p>
+        </article>
+      </section>
+
+      <section id="dashboardView" class="dashboard-view hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Finance Bot Suite</p>
+            <h2>Operação</h2>
+          </div>
+          <div class="topbar-actions">
+            <button id="syncStatus" class="ghost">Sincronizar inadimplência</button>
+            <button id="runRenewals" class="ghost">Gerar renovações Asaas</button>
+            <button id="runProactive" class="ghost">Rodar alertas proativos</button>
+            <button id="logoutBtn" class="danger">Sair</button>
+          </div>
+        </header>
+
+        <p id="notice" class="notice hidden"></p>
+
+        <section class="cards">
+          <article class="card"><h3>Clientes ativos</h3><p id="activeCustomers">-</p></article>
+          <article class="card"><h3>Online agora (1h)</h3><p id="online1h">-</p></article>
+          <article class="card"><h3>Online 24h</h3><p id="online24h">-</p></article>
+          <article class="card"><h3>Inativos 7d</h3><p id="inactive7d">-</p></article>
+          <article class="card"><h3>Novos hoje</h3><p id="newToday">-</p></article>
+          <article class="card"><h3>Inadimplentes</h3><p id="pastDue">-</p></article>
+          <article class="card"><h3>Pendente entrada</h3><p id="pendingSetup">-</p></article>
+          <article class="card"><h3>Em teste</h3><p id="trialCustomers">-</p></article>
+          <article class="card"><h3>Despesas mês</h3><p id="expensesMonth">-</p></article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head-inline">
+            <h3>Gestão financeira (OpenAI + Twilio + Infra)</h3>
+            <button id="saveCostSnapshot" class="ghost">Salvar snapshot de hoje</button>
+          </div>
+          <p id="costGlossary" class="small muted">
+            MTD = do dia 1 até hoje. Projetado = estimativa para o fechamento do mês. Lucro = receita menos custos.
+          </p>
+          <div class="executive-grid">
+            <article class="executive-card">
+              <h4>Receita MTD</h4>
+              <p id="kpiRevenueMtd">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Custo MTD</h4>
+              <p id="kpiCostMtd">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Lucro MTD</h4>
+              <p id="kpiProfitMtd">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Margem MTD</h4>
+              <p id="kpiMarginMtd">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Receita projetada</h4>
+              <p id="kpiRevenueProjected">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Custo projetado</h4>
+              <p id="kpiCostProjected">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Lucro projetado</h4>
+              <p id="kpiProfitProjected">-</p>
+            </article>
+            <article class="executive-card">
+              <h4>Custo por cliente ativo</h4>
+              <p id="kpiCostPerActive">-</p>
+            </article>
+          </div>
+          <div id="costInsights" class="insights-row"></div>
+          <h3>Detalhe dos custos</h3>
+          <div class="cost-grid">
+            <article class="cost-card"><h4>OpenAI (MTD)</h4><p id="costOpenAiMtd">-</p></article>
+            <article class="cost-card"><h4>Twilio (MTD)</h4><p id="costTwilioMtd">-</p></article>
+            <article class="cost-card"><h4>Supabase alocado</h4><p id="costSupabaseMtd">-</p></article>
+            <article class="cost-card"><h4>Outros fixos (MTD)</h4><p id="costFixedMtd">-</p></article>
+            <article class="cost-card"><h4>Custo total (MTD)</h4><p id="costTotalMtd">-</p></article>
+            <article class="cost-card"><h4>Custo projetado (mês)</h4><p id="costProjectedMonth">-</p></article>
+            <article class="cost-card"><h4>Receita (MTD)</h4><p id="revenueMtd">-</p></article>
+            <article class="cost-card"><h4>Lucro (MTD)</h4><p id="profitMtd">-</p></article>
+            <article class="cost-card"><h4>Lucro projetado</h4><p id="profitProjected">-</p></article>
+          </div>
+          <div class="provider-share-panel">
+            <h4>Participação dos custos no MTD</h4>
+            <div id="providerShare" class="provider-share-list"></div>
+          </div>
+          <div class="table-wrap">
+            <table class="cost-table">
+              <thead>
+                <tr>
+                  <th>Provedor</th>
+                  <th>MTD (US$)</th>
+                  <th>MTD (R$)</th>
+                  <th>Proj. mês (US$)</th>
+                  <th>Mensal fixo (US$)</th>
+                  <th>Fonte</th>
+                  <th>Status</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="costProviderRows"></tbody>
+            </table>
+          </div>
+          <div id="costStatus" class="small muted"></div>
+          <h3>Snapshots diários</h3>
+          <div id="costSnapshots" class="list small-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head-inline">
+            <h3>Planos e Limites de Uso</h3>
+          </div>
+          <p class="small muted">Visual de vendas e operação por plano. Aqui fica claro o que cada cliente recebe e o teto mensal de mensagens.</p>
+          <div id="plansSummary" class="insights-row"></div>
+          <div class="table-wrap">
+            <table class="cost-table plan-table">
+              <thead>
+                <tr>
+                  <th>Plano</th>
+                  <th>Entrada</th>
+                  <th>Mensal</th>
+                  <th>Msg/mês</th>
+                  <th>Nível IA</th>
+                  <th>Proatividade</th>
+                  <th>Membros grupo</th>
+                  <th>Recursos</th>
+                  <th>Posicionamento</th>
+                </tr>
+              </thead>
+              <tbody id="planRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel agent-room-panel">
+          <div class="panel-head-inline">
+            <h3>Sala de Reunião dos Agentes</h3>
+            <button id="agentRoomRefresh" class="ghost">Atualizar salas</button>
+          </div>
+          <p class="small muted">
+            Aqui você conversa com os agentes de IA e acompanha todo o raciocínio da equipe.
+            O <strong>coordenador geral</strong> conduz as discussões e fecha as decisões.
+          </p>
+          <div class="agent-room-grid">
+            <article class="agent-room-column">
+              <h4>Squad Plano Família</h4>
+              <div id="familySquadStatus" class="item small">Carregando status da squad...</div>
+              <button id="familySquadActivate" class="primary">Ativar equipe dedicada</button>
+              <button id="familySquadRun" class="ghost">Rodar diagnóstico família</button>
+
+              <h4>Orquestração</h4>
+              <label for="agentCoordinatorSelect" class="small muted">Coordenador geral</label>
+              <select id="agentCoordinatorSelect"></select>
+              <button id="agentConfigSave" class="ghost">Salvar coordenador</button>
+
+              <h4>Nova reunião</h4>
+              <label for="agentRoomTitle" class="small muted">Título da sala</label>
+              <input id="agentRoomTitle" type="text" placeholder="Ex: Melhorar conversa humana da Iara" />
+              <label for="agentRoomInstruction" class="small muted">Instrução para os agentes</label>
+              <textarea id="agentRoomInstruction" rows="6" placeholder="Explique o objetivo, restrições e o resultado esperado."></textarea>
+              <button id="agentRoomStart" class="primary">Iniciar reunião</button>
+
+              <h4>Salas recentes</h4>
+              <div id="agentRoomsList" class="list small-list"></div>
+            </article>
+
+            <article class="agent-room-column">
+              <h4>Conversa da sala</h4>
+              <div id="agentRoomMeta" class="item">Selecione uma sala para acompanhar o debate.</div>
+              <div id="agentRoomMessages" class="list agent-room-messages"></div>
+
+              <div class="agent-room-block">
+                <h4>Resumo final</h4>
+                <div id="agentRoomSummary" class="item">---</div>
+              </div>
+
+              <div class="agent-room-block">
+                <h4>Decisões</h4>
+                <div id="agentRoomDecisions" class="list small-list"></div>
+              </div>
+
+              <div class="agent-room-block">
+                <h4>Mudanças propostas</h4>
+                <div id="agentRoomChanges" class="list small-list"></div>
+              </div>
+
+              <label for="agentRoomFollowup" class="small muted">Nova instrução para a sala selecionada</label>
+              <textarea id="agentRoomFollowup" rows="4" placeholder="Ex: priorizem qualidade de lembretes e humanização do tom."></textarea>
+              <button id="agentRoomSend" class="primary">Enviar instrução na sala</button>
+            </article>
+          </div>
+        </section>
+
+        <section class="split">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>Clientes</h3>
+              <input id="customerSearch" type="search" placeholder="Buscar por nome ou número" />
+            </div>
+            <div class="filter-row">
+              <button id="filterAll" class="filter-chip is-active" data-filter="all">Todos <span id="countAll">0</span></button>
+              <button id="filterActive" class="filter-chip" data-filter="active">Ativos <span id="countActive">0</span></button>
+              <button id="filterPastDue" class="filter-chip" data-filter="past_due">Inadimplentes <span id="countPastDue">0</span></button>
+              <button id="filterPending" class="filter-chip" data-filter="pending_setup_payment">Pendente entrada <span id="countPending">0</span></button>
+              <button id="filterTrial" class="filter-chip" data-filter="trial">Em teste <span id="countTrial">0</span></button>
+              <button id="filterCanceled" class="filter-chip" data-filter="canceled">Cancelados <span id="countCanceled">0</span></button>
+              <button id="filterInactive" class="filter-chip" data-filter="inactive_7d">Sem atividade 7d <span id="countInactive">0</span></button>
+            </div>
+            <div id="customers" class="list"></div>
+          </article>
+
+          <article class="panel">
+            <h3>Cliente selecionado</h3>
+            <div id="selectedCustomer" class="item">Selecione um cliente na lista.</div>
+
+            <div class="actions">
+              <button id="paySetup" class="primary">Registrar ativação</button>
+              <button id="payMonthly" class="primary">Registrar mensalidade</button>
+              <button id="chargeSetup" class="ghost">Gerar cobrança entrada</button>
+              <button id="chargeMonthly" class="ghost">Gerar cobrança mensal</button>
+              <button id="addReferral" class="ghost">+1 indicação</button>
+              <button id="activateTrial" class="ghost">Ativar teste 5 dias</button>
+              <select id="customerPlanSelect" class="ghost">
+                <option value="free">Gratuito</option>
+                <option value="essential">Essencial</option>
+                <option value="premium">Premium</option>
+                <option value="family">Família</option>
+                <option value="elite">Elite</option>
+              </select>
+              <button id="applyPlan" class="ghost">Aplicar plano</button>
+              <button id="statusActive" class="ghost">Ativar assinatura</button>
+              <button id="statusCancel" class="danger">Cancelar assinatura</button>
+              <button id="deleteCustomer" class="danger">Excluir cliente</button>
+            </div>
+
+            <h3>Transações do cliente</h3>
+            <div id="transactions" class="list small-list"></div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <h3>Pagamentos recentes</h3>
+          <div id="payments" class="list"></div>
+        </section>
+
+        <!-- JARDES — Assistente Executivo -->
+        <section class="panel jardes-panel">
+          <div class="jardes-header">
+            <div>
+              <h3>⚡ Jardes — Assistente Executivo</h3>
+              <p class="small muted">Gestor geral do projeto Iara. Conhece tudo. Responde como humano.</p>
+            </div>
+            <label class="jardes-metrics-toggle">
+              <input type="checkbox" id="jardesMetrics" />
+              <span>Incluir dados reais</span>
+            </label>
+          </div>
+          <div id="jardesChat" class="jardes-chat"></div>
+          <div class="jardes-input-row">
+            <textarea id="jardesInput" placeholder="Fale com o Jardes... (Enter para enviar)" rows="2"></textarea>
+            <button id="jardesSend" class="primary">Enviar</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/main.js" type="module"></script>
+  </body>
+</html>

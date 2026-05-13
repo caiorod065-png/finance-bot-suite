@@ -1,0 +1,719 @@
+{
+  "summary": {
+    "generatedAt": "2026-03-25T20:24:54.573Z",
+    "model": "gpt-4.1-mini",
+    "total": 100,
+    "passed": 98,
+    "failed": 2,
+    "passRate": 98,
+    "flags": {
+      "no_next_step_question": 2
+    }
+  },
+  "results": [
+    {
+      "id": 1,
+      "prompt": "quero sim, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, bora organizar isso rapidinho. Me mande seus gastos assim: valor, descrição rápida (tipo “almoço” ou “supermercado”) e a data, se for diferente de hoje. Exemplo: “45 restaurante” ou “120 mercado 23/03”.\nSe continuar assim, vai ter controle total do dinheiro e evitar surpresas no fim do mês. Quer já anotar seu primeiro gasto?"
+    },
+    {
+      "id": 2,
+      "prompt": "quero sim, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo você querer começar hoje, isso já é meio caminho andado. Para mandar seus gastos no dia a dia, é só me dizer o valor e a categoria, tipo: “Gastei 50 em almoço” ou “Comprei 120 em mercado”. Assim eu anoto pra você.\nSe continuar anotando direitinho, vai evitar surpresas no fim do mês. Quer anotar um gasto agora pra testarmos?"
+    },
+    {
+      "id": 3,
+      "prompt": "quero sim, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto é simples: só me falar o valor e a descrição, tipo \"gastei 50 no mercado\" ou \"30 no transporte\". Assim já anoto pra você. Se continuar assim, vai ficar fácil controlar onde seu dinheiro está indo. Quer já começar com algum gasto hoje?"
+    },
+    {
+      "id": 4,
+      "prompt": "quero sim, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Legal começar hoje, receita é dinheiro que entra, como salário ou venda. Você pode me dizer o valor e a origem, tipo “anotar receita 2000 salário”? Assim já registro pra você. Se não anotar, pode faltar controle e perder chance de ajustar gastos. Quer anotar uma receita agora?"
+    },
+    {
+      "id": 5,
+      "prompt": "quero sim, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Sou sua parceira para organizar seu dinheiro sem complicação. Você me conta seus gastos e receitas, eu resumo seu mês, ajudo a definir metas e limites pra evitar aperto no fim do mês, e ainda aviso se algo pode sair do controle. Por exemplo: anotar um gasto, criar uma meta de economia, ou mostrar quanto já gastou hoje.\nQuer começar anotando um gasto agora?"
+    },
+    {
+      "id": 6,
+      "prompt": "quero sim, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje sem erro. Aqui é simples: você anota seus gastos e receitas, define limites para não estourar e cria metas para alcançar seus objetivos. Também posso mostrar seu resumo do mês e avisar se algum gasto está fora do padrão.\nSe continuar assim, vai evitar surpresas e controlar melhor seu dinheiro. Quer anotar um gasto agora para eu te mostrar como funciona na prática?"
+    },
+    {
+      "id": 7,
+      "prompt": "quero sim, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, bora organizar essa grana!\nPosso te ajudar a anotar gastos e receitas, mostrar seu resumo do mês, definir limites diários/semanal/mensais, criar metas financeiras e acompanhar seus lembretes de contas.\nSe continuar anotando tudo direitinho, vai evitar sustos no fim do mês — quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 8,
+      "prompt": "quero sim, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo você querer começar hoje, bora organizar suas finanças de um jeito simples. Primeiro passo: me conte um gasto ou receita que você teve recentemente para eu anotar. Assim já começamos a ter controle e evitar surpresas no saldo.\nQuer lançar um gasto agora?"
+    },
+    {
+      "id": 9,
+      "prompt": "quero sim, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, vamos deixar tudo no lugar rapidinho. Me conte seus gastos e receitas recentes (ex: salário, aluguel, mercado), ou se preferir, posso ajudar a anotar um gasto agora para já ir organizando. Assim já começo a montar seu resumo financeiro.\nQuer começar anotando alguma despesa ou receita agora?"
+    },
+    {
+      "id": 10,
+      "prompt": "quero sim, o que você faz exatamente?",
+      "ok": false,
+      "flags": [
+        "no_next_step_question"
+      ],
+      "reply": "Boa, Felipe! Me manda seus gastos do jeito que você fala normalmente.\nExemplo rápido: \"hoje gastei 35 no mercado\" ou \"ontem paguei 18 de transporte\".\nSe quiser, já me manda seu primeiro lançamento agora e eu te devolvo com análise."
+    },
+    {
+      "id": 11,
+      "prompt": "beleza, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, já é meio caminho andado! Você pode me mandar seus gastos dizendo o valor e a categoria, tipo “gasto 50 em supermercado” ou “gasto 120 em transporte”. Assim eu lanço certinho pra você.\nSe continuar anotando direitinho, vai evitar surpresas no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 12,
+      "prompt": "beleza, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra mandar seus gastos é simples: só me contar o valor e a descrição, tipo \"gastei 50 no mercado\" ou \"combustível 100 reais\". Eu anoto pra você e já deixo tudo organizado. Assim, evita esquecer e controla melhor o bolso.\nSe continuar anotando direitinho, seu resumo mensal vai ficar show e você evita surpresas no saldo. Quer tentar lançar um gasto agora pra eu te mostrar?"
+    },
+    {
+      "id": 13,
+      "prompt": "beleza, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra registrar um gasto, é só me dizer o valor, a categoria (tipo alimentação, transporte, lazer) e, se quiser, um detalhe rápido (ex: almoço no trabalho). Por exemplo: \"gastei 30 no almoço\". Assim já anoto pra você.\nSe continuar registrando direitinho, fica mais fácil evitar surpresas no fim do mês. Quer anotar um gasto agora?"
+    },
+    {
+      "id": 14,
+      "prompt": "beleza, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra anotar receita, é só me dizer o valor e a fonte, tipo: \"Receita 2000 salário\" ou \"Ganhei 150 de venda\". Assim já registro pra você.\nSe manter esse controle, a previsão do seu saldo fica mais precisa e evita sustos no fim do mês. Quer anotar uma receita agora?"
+    },
+    {
+      "id": 15,
+      "prompt": "beleza, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Sou sua parceira para organizar suas finanças pessoais, ajudando a anotar gastos, receitas, definir metas e limites, e mostrar resumos para você tomar decisões melhores. Por exemplo, posso ajudar a: lançar um gasto, criar uma meta de economia, mostrar seu resumo mensal ou avisar se algo está passando do limite.\nSe continuar assim, fica fácil evitar aperto no fim do mês! Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 16,
+      "prompt": "beleza, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar firme! Aqui é simples: você anota seus gastos e receitas, define limites para evitar exageros, cria metas para economizar e acompanha seu resumo mensal. Por exemplo, pode lançar aquele cafezinho, fixar um limite semanal para lazer, criar uma meta para a viagem e ver onde está gastando mais.\nSe continuar anotando tudo, fica fácil evitar surpresas e poupar melhor. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 17,
+      "prompt": "beleza, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, bora organizar essa grana. Eu entendo comandos para anotar gastos e receitas, mostrar seu resumo do mês, definir limites diários ou mensais, criar metas financeiras e até lembrar de contas a pagar.\nSe continuar anotando direitinho, evita aperto no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 18,
+      "prompt": "beleza, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom te ver por aqui! Pra começar, anota um gasto ou receita que você teve hoje, assim já organizamos sua base financeira. Se continuar anotando tudo direitinho, vai evitar apertos no fim do mês. Quer lançar algum gasto agora?"
+    },
+    {
+      "id": 19,
+      "prompt": "beleza, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, vamos agilizar isso. Me conte seus gastos e receitas do mês, tipo: “gastei 100 no mercado” ou “recebi 2000 do trabalho”. Também pode falar de contas fixas ou metas que quer criar. Assim eu já organizo tudo pra você evitar surpresas.\nSe continuar anotando direitinho, vai ver seu saldo mensal bem mais claro. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 20,
+      "prompt": "beleza, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu te ajudo a organizar suas finanças pessoais, transformando seus gastos e receitas em planos práticos. Por exemplo: anotar seus gastos, criar metas, definir limites, mostrar resumo mensal e prever saldo. Assim, você evita surpresas e melhora seu controle financeiro sem complicação.\nQuer começar anotando um gasto ou definindo uma meta?"
+    },
+    {
+      "id": 21,
+      "prompt": "show, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje. Você pode me mandar seus gastos assim: diga o valor, a categoria (como alimentação, transporte, lazer) e, se quiser, um breve detalhe. Exemplo: \"Gastei 50 no mercado\" ou \"30 no Uber\". Assim, já lanço pra você rapidinho.\nSe continuar anotando assim, vai evitar surpresas no fim do mês. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 22,
+      "prompt": "show, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Para mandar seus gastos, é só me dizer o valor e a descrição rapidinho, tipo: \"gasto 50 no mercado\". Assim, já anoto pra você. Se continuar assim, vai ficar fácil controlar e evitar surpresas no fim do mês. Quer tentar lançar um gasto agora?"
+    },
+    {
+      "id": 23,
+      "prompt": "show, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra registrar um gasto, é só me dizer o valor, a categoria (tipo alimentação, transporte, etc.) e, se quiser, uma descrição rápida. Exemplo: \"Gastei 50 no mercado\". Assim já anoto pra você.\nSe continuar registrando direitinho, vai evitar surpresas no fim do mês. Quer tentar agora registrando seu primeiro gasto?"
+    },
+    {
+      "id": 24,
+      "prompt": "show, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra anotar receita, é só me dizer o valor e a origem, tipo “receita 2000 salário” ou “receita 150 freelance”. Isso ajuda a controlar de onde vem seu dinheiro e facilita o resumo mensal. Se continuar assim, você vai ter uma visão clara do que entra todo mês. Quer começar anotando sua primeira receita agora?"
+    },
+    {
+      "id": 25,
+      "prompt": "show, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Sou sua assistente financeira que transforma seus gastos e receitas em ações simples. Por exemplo: você pode anotar um gasto, definir um limite mensal, criar metas de economia e receber resumos para evitar surpresas. Se continuar assim, vai controlar melhor seu dinheiro e evitar apertos no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 26,
+      "prompt": "show, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, isso já é meio caminho andado. Aqui é simples: você anota todos os gastos e receitas, define limites para controlar onde pode gastar mais, cria metas para guardar grana e acompanha seu resumo mensal para ver se está no caminho certo. Por exemplo, pode anotar aquele cafezinho, definir um limite semanal para lazer, criar meta para uma viagem e conferir o saldo previsto do mês.\nSe continuar assim, vai evitar surpresas no fim do mês. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 27,
+      "prompt": "show, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, isso já é meio caminho andado. Posso ajudar você a anotar gastos e receitas, mostrar seu resumo do mês, criar metas financeiras, definir limites para controlar seus gastos e criar lembretes de contas. Se continuar assim, sua organização financeira vai melhorar rápido.\nQuer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 28,
+      "prompt": "show, como eu começo com você agora?",
+      "ok": false,
+      "flags": [
+        "no_next_step_question"
+      ],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje — bora organizar essas finanças! Primeiro passo: me diga um gasto ou uma receita que você teve recentemente para eu anotar pra você. Assim já começo a montar seu controle e te aviso se algo pode apertar seu orçamento.\nSe continuar assim, vai ficar fácil evitar surpresas no fim do mês. Me conta aí o primeiro lançamento!"
+    },
+    {
+      "id": 29,
+      "prompt": "show, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, já é um ótimo passo. Me passe seus gastos e receitas principais aqui mesmo no WhatsApp, tipo: \"gastei 50 em mercado\" ou \"recebi 2000 salário\". Vou ajudar a organizar tudo.\nSe continuar lançando direitinho, vai evitar surpresas no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 30,
+      "prompt": "show, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Eu te ajudo a organizar sua grana no dia a dia: anotar gastos e receitas, mostrar resumo mensal, criar metas e limites pra evitar apertos. Também aviso se seu saldo pode ficar no vermelho ou se está gastando demais.\nSe continuar assim, você vai ter controle e menos dor de cabeça com dinheiro. Quer começar anotando algum gasto ou definindo uma meta?"
+    },
+    {
+      "id": 31,
+      "prompt": "entendi, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Você pode me mandar seus gastos assim: informe o valor, a categoria (ex: alimentação, transporte) e, se quiser, um detalhe rápido (ex: almoço no trabalho). Exemplo: \"25, alimentação, almoço\". Isso ajuda a organizar direitinho.\nSe continuar anotando tudo certinho, vai evitar surpresas no fim do mês. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 32,
+      "prompt": "entendi, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Para mandar seus gastos, é só me dizer o valor e a descrição rapidinho, tipo “gastei 50 no mercado”. Assim já fica anotado e organizado. Se continuar assim, você vai evitar surpresas no fim do mês. Quer testar lançando um gasto agora?"
+    },
+    {
+      "id": 33,
+      "prompt": "entendi, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, é só me dizer o valor, a descrição e a data (se for diferente de hoje). Exemplo: “Gastei 50 no mercado hoje” — aí eu anoto pra você.\nAssim você evita esquecer despesas e já controla melhor seu orçamento.\nQuer anotar algum gasto agora pra testar?"
+    },
+    {
+      "id": 34,
+      "prompt": "entendi, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Anotar receita é simples: você me diz o valor e a origem do dinheiro que entrou (ex: salário, venda, presente) e eu registro pra você. Por exemplo: “anotar receita 2000 salário” vai guardar isso certinho.\nAssim você controla melhor o que entra e evita surpresas no saldo. Quer começar anotando alguma receita agora?"
+    },
+    {
+      "id": 35,
+      "prompt": "entendi, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu te ajudo a organizar suas finanças pessoais de forma prática, tipo um GPS financeiro. Você pode lançar seus gastos e receitas, definir metas para economizar, ajustar limites para controlar despesas, e ainda receber resumos e previsões para evitar surpresas no fim do mês. Por exemplo, se você anotar um gasto alto, eu aviso que pode faltar dinheiro; se quiser, ajudamos a criar uma meta para aquela viagem ou reserva de emergência.\nQuer começar anotando algum gasto agora ou definir uma meta?"
+    },
+    {
+      "id": 36,
+      "prompt": "entendi, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar bem! Aqui é simples: anota seus gastos e receitas todo dia, define limites para não passar do orçamento, cria metas financeiras para o que deseja e checa o resumo mensal para ver se está no caminho. Se continuar assim, evita apertos no fim do mês. Quer que eu te ajude a anotar seu primeiro gasto agora?"
+    },
+    {
+      "id": 37,
+      "prompt": "entendi, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, já é um ótimo passo. Posso ajudar você a anotar gastos e receitas, mostrar seu resumo mensal, definir limites de gastos, criar metas financeiras e acompanhar vencimentos. Assim, a gente evita surpresas e organiza seu dinheiro de verdade. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 38,
+      "prompt": "entendi, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, vamos direto ao ponto: me diga um gasto ou receita que você queira anotar agora, assim já organizamos seu controle financeiro. Se continuar registrando direitinho, vai evitar surpresas no fim do mês. Quer lançar seu primeiro gasto ou receita?"
+    },
+    {
+      "id": 39,
+      "prompt": "entendi, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo começar hoje, vamos facilitar sua vida financeira. Você pode me passar seus gastos e receitas aos poucos, só me dizer o valor, a categoria (tipo alimentação, transporte, lazer) e a data, se quiser. Também pode definir limites e metas para eu ajudar a controlar.\nSe quiser, já me diga um gasto que teve hoje para eu anotar? Assim já começamos!"
+    },
+    {
+      "id": 40,
+      "prompt": "entendi, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Sou sua assistente financeira: ajudo a anotar gastos e receitas, criar metas, acompanhar seus limites e mostrar resumos mensais. Também dou alertas para evitar apertos e sugestões para melhorar seu controle. Por exemplo, posso avisar se seu gasto está muito alto, ajudar a definir um limite diário ou mostrar previsão do saldo do mês. Quer começar anotando um gasto ou definindo uma meta?"
+    },
+    {
+      "id": 41,
+      "prompt": "iara, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, bora organizar sua grana. Você pode me mandar seus gastos com valor e descrição, tipo “gasto 50 no mercado” ou “comida 30”. Assim eu anoto certinho pra você. Se quiser, já manda um gasto para eu registrar! Quer começar com algum gasto agora?"
+    },
+    {
+      "id": 42,
+      "prompt": "iara, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra anotar seus gastos, é só me mandar uma mensagem com o valor e a descrição, tipo: \"Gasto 50 no mercado\" ou \"Gasto 30 no transporte\". Assim eu registro pra você.\nSe continuar anotando direitinho, vai ficar fácil ver onde seu dinheiro está indo e evitar surpresas no fim do mês. Quer começar agora com um gasto?"
+    },
+    {
+      "id": 43,
+      "prompt": "iara, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, é só me dizer o valor, o que comprou e, se quiser, a categoria (tipo alimentação, transporte). Exemplo: \"Gastei 50 no mercado\". Assim já anoto pra você.\nSe continuar assim, vai ficar fácil controlar o que sai do seu bolso. Quer registrar um gasto agora?"
+    },
+    {
+      "id": 44,
+      "prompt": "iara, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar agora. Para anotar uma receita, é só me dizer o valor e a origem, tipo: \"receita 2500 salário\" ou \"receita 300 freelance\". Eu registro e ajudo a acompanhar sua renda. Assim, fica mais fácil ver seu saldo e planejar gastos.\nQuer anotar uma receita agora?"
+    },
+    {
+      "id": 45,
+      "prompt": "iara, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu sou sua assistente financeira que ajuda a organizar seus gastos, registrar receitas, criar metas e acompanhar seus limites para evitar surpresas no bolso. Posso mostrar seu resumo do mês, avisar se o gasto está alto demais e até ajudar a definir metas para economizar. Se continuar assim, vai ficar fácil controlar o dinheiro sem estresse! Quer começar anotando algum gasto ou definir uma meta agora?"
+    },
+    {
+      "id": 46,
+      "prompt": "iara, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, vamos juntos evitar erros. Você pode anotar seus gastos e receitas logo após acontecer; assim, nada escapa. Defina limites diários ou mensais para controlar gastos e crie metas para focar onde quer chegar. Também posso mostrar seu resumo mensal para ajustar o que for preciso.\nSe continuar assim, vai ter um controle bacana e evitar aperto no fim do mês. Quer começar anotando o primeiro gasto agora?"
+    },
+    {
+      "id": 47,
+      "prompt": "iara, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, vamos agilizar sua vida financeira. Eu entendo comandos para anotar gastos e receitas, mostrar resumo do mês, definir limites diários/semanal/mensal, criar metas financeiras e listar lembretes de contas. Se quiser, posso mostrar seus gastos de hoje ou ajudar a definir uma meta para controlar melhor seu dinheiro.\nQuer começar anotando algum gasto agora ou definir uma meta?"
+    },
+    {
+      "id": 48,
+      "prompt": "iara, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom te ver animado para começar. Primeiro, vamos anotar seu gasto ou receita para ter um controle real do seu dinheiro. Com isso, já consigo te dar um resumo personalizado e ajudar a definir limites para evitar apertos no fim do mês. Quer anotar algum gasto agora?"
+    },
+    {
+      "id": 49,
+      "prompt": "iara, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, bora organizar isso rápido. Me envie seus gastos e receitas conforme forem acontecendo, tipo: \"gastei 50 no mercado\" ou \"recebi 2000 do salário\". Também dá pra definir limites e metas para controlar melhor. Se quiser, já posso ajudar a anotar seu primeiro gasto agora. Quer?"
+    },
+    {
+      "id": 50,
+      "prompt": "iara, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Sou sua assistente financeira que transforma seus gastos e receitas em decisões práticas, para evitar sufoco no fim do mês. Por exemplo, posso ajudar a anotar despesas, criar metas, mostrar resumos mensais e definir limites para você não estourar o orçamento. Se continuar assim, seu controle melhora rápido! Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 51,
+      "prompt": "ok, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pode me mandar seus gastos assim: valor + descrição rápida, tipo \"50 almoço\" ou \"120 gasolina\". Se quiser, já posso te ajudar a anotar agora mesmo.\nSe continuar registrando direitinho, dá pra evitar surpresas no fim do mês! Quer começar lançando um gasto agora?"
+    },
+    {
+      "id": 52,
+      "prompt": "ok, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra mandar seus gastos é só escrever o valor e a descrição, tipo: \"50 almoço\" ou \"120 mercado\". Eu já anoto pra você! Se quiser, pode incluir a categoria também, ajuda a organizar melhor. Se continuar anotando direitinho, vai evitar surpresas no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 53,
+      "prompt": "ok, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, é só me dizer o valor, a categoria (tipo alimentação, transporte, etc.) e, se quiser, uma descrição rápida. Exemplo: “Gasto 50 em mercado”. Assim a gente já controla direitinho.\nRegistrar gastos ajuda a não perder o controle — se continuar sem anotar, pode faltar dinheiro no fim do mês. Quer fazer um teste agora? Me diga um gasto que você fez hoje!"
+    },
+    {
+      "id": 54,
+      "prompt": "ok, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra anotar receita é simples: me diga o valor, a descrição (ex: salário, extra) e a data se quiser. Exemplo: \"Receita 2000 salário hoje\". Assim, já conto no seu saldo e te ajudo a controlar melhor.\nSe continuar anotando certinho, fica fácil evitar apertos no fim do mês. Quer anotar uma receita agora pra testar?"
+    },
+    {
+      "id": 55,
+      "prompt": "ok, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Sou sua parceira financeira que ajuda a organizar seus gastos, receitas, limites e metas de forma simples e prática. Por exemplo, posso anotar seus gastos, mostrar seu resumo mensal, ajudar a definir limites para não passar do orçamento e criar metas para você economizar.\nSe continuar assim, vai ter controle e menos surpresas no fim do mês. Quer começar anotando algum gasto ou definir uma meta?"
+    },
+    {
+      "id": 56,
+      "prompt": "ok, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, bora evitar esses erros chatos.\nVocê pode anotar seus gastos e receitas logo após acontecer, assim não esquece nada. Defina um limite mensal para controlar o que pode gastar sem estourar. Crie metas para o que quer guardar ou pagar. E sempre peça seu resumo para ver onde está exagerando.\nSe continuar assim, vai evitar aperto no fim do mês. Quer anotar seu primeiro gasto agora?"
+    },
+    {
+      "id": 57,
+      "prompt": "ok, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar logo. Eu entendo comandos para anotar gastos e receitas, mostrar seu resumo do mês, definir limites diários ou mensais, criar metas financeiras e acompanhar seus vencimentos.\nSe continuar anotando seus gastos direito, vai evitar surpresas no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 58,
+      "prompt": "ok, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo começar hoje, vamos direto ao ponto: a primeira coisa que ajuda muito é anotar seus gastos do dia para ter controle real. Se continuar assim, você evita surpresas no fim do mês. Quer lançar algum gasto ou já prefere definir um limite mensal para não passar do orçamento?"
+    },
+    {
+      "id": 59,
+      "prompt": "ok, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe, tudo bem? Pra começar, você pode me passar seus gastos e receitas do dia a dia, só me dizer o valor e a categoria (ex: supermercado, salário). Também dá pra definir limites e metas pra organizar melhor. Se continuar assim, a gente evita aperto no fim do mês, combinado? Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 60,
+      "prompt": "ok, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Sou sua assistente financeira que organiza seus gastos, receitas, metas e limites pra você tomar decisões sem dor de cabeça. Posso ajudar a anotar seu gasto, mostrar resumo do mês, definir metas e alertar quando o dinheiro pode faltar. Se continuar assim, vai evitar aperto no fim do mês e ainda poupar melhor. Quer começar anotando algum gasto ou definir uma meta financeira agora?"
+    },
+    {
+      "id": 61,
+      "prompt": "vamos, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, já é o primeiro passo pra organização. Pode me mandar o gasto assim: valor + descrição rápida (ex: 50,00 almoço). Se quiser, já me fala se é gasto ou receita, assim lanço certinho.\nSe continuar assim, vai evitar surpresas no bolso. Quer anotar um gasto agora pra testarmos?"
+    },
+    {
+      "id": 62,
+      "prompt": "vamos, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra mandar seus gastos é só me contar o que você comprou, valor e dia (se for diferente de hoje). Tipo: \"gastei 50 no mercado\" ou \"paguei 120 de luz ontem\". Assim já vou organizando pra você.\nSe continuar assim, vai ficar fácil ver onde o dinheiro está indo e evitar surpresas no fim do mês. Quer anotar um gasto agora pra testar?"
+    },
+    {
+      "id": 63,
+      "prompt": "vamos, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, é só me dizer o valor, a categoria (tipo alimentação, transporte, etc.) e, se quiser, uma descrição rápida. Exemplo: “gastei 50 em almoço”.\nRegistrar direitinho ajuda a ver pra onde seu dinheiro está indo e evita surpresas no saldo. Quer anotar seu primeiro gasto agora?"
+    },
+    {
+      "id": 64,
+      "prompt": "vamos, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, é o primeiro passo para dominar as finanças. Para anotar uma receita, só me diga o valor, a origem (ex: salário, venda, presente) e a data, se não for hoje. Exemplo: “anotar receita 3000 salário”.\nSe continuar anotando certinho, vai ter controle total do que entra no bolso. Quer começar anotando sua receita de março?"
+    },
+    {
+      "id": 65,
+      "prompt": "vamos, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, vamos nessa. Eu te ajudo a controlar seus gastos e receitas, definir limites para não estourar o orçamento, criar metas para realizar seus sonhos e ainda mostro resumos e previsões para você não ser pego de surpresa. Por exemplo, posso avisar se você está gastando demais em um dia ou ajudar a planejar o quanto guardar para uma viagem.\nAgora, me diz: qual o primeiro gasto ou receita que quer anotar? Assim já começamos a organizar suas finanças na prática!"
+    },
+    {
+      "id": 66,
+      "prompt": "vamos, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, bora evitar escorregões financeiros. Você pode anotar seus gastos e receitas assim a gente controla onde seu dinheiro vai, definir limites para não passar do que pode, criar metas para objetivos (tipo guardar pra viagem) e acompanhar um resumo mensal pra ver tudo numa boa. Se continuar anotando certinho, fica difícil perder o controle ou atrasar conta.\nQuer começar anotando algum gasto ou receita agora?"
+    },
+    {
+      "id": 67,
+      "prompt": "vamos, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, bora agilizar sua vida financeira! Posso ajudar você a anotar gastos e receitas, mostrar resumo do mês, definir limites diários ou mensais, criar metas financeiras e lembrar de contas a pagar. Se continuar assim, vai evitar apertos no fim do mês, recomendo começar anotando seu primeiro gasto agora. Quer lançar algum valor?"
+    },
+    {
+      "id": 68,
+      "prompt": "vamos, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje — vamos direto ao ponto para evitar enrolação. Primeiro, me conta: quer anotar algum gasto ou receita que já tenha feito hoje, ou prefere definir uma meta financeira para organizar seu dinheiro? Se continuar assim, já vai ficar mais fácil evitar apertos no fim do mês. O que prefere?"
+    },
+    {
+      "id": 69,
+      "prompt": "vamos, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, vamos agilizar isso. Me conte seus gastos ou receitas atuais, ou se preferir, já podemos definir uma meta ou limite para organizar seu mês. Assim, já entro no ritmo da sua grana e evito surpresas.\nQual você prefere: anotar um gasto agora ou definir uma meta financeira?"
+    },
+    {
+      "id": 70,
+      "prompt": "vamos, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que bom que quer começar hoje, adoro essa energia! Eu te ajudo a controlar seus gastos, registrar receitas, definir metas, acompanhar limites e mostrar resumos para você evitar apertos no fim do mês. Posso até prever seu saldo e indicar se algo pode sair do controle.\nSe continuar assim, você vai evitar sustos no orçamento e ter dinheiro sobrando no fim do mês. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 71,
+      "prompt": "top, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, bora organizar isso. Você pode me mandar seus gastos assim: “gasto 50 no mercado” ou “gasto 120 em combustível”. Simples, direto e rapidinho.\nSe continuar anotando tudo certinho, vai evitar surpresas no fim do mês. Quer anotar um gasto agora pra já começar?"
+    },
+    {
+      "id": 72,
+      "prompt": "top, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra anotar seus gastos no dia a dia é só mandar a mensagem com o valor e a descrição, tipo “30 almoço” ou “120 mercado”. Assim já fica registrado e você acompanha direitinho pra não perder o controle. Se continuar assim, evita sustos no fim do mês!\nQuer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 73,
+      "prompt": "top, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, é só me dizer o valor, a descrição e a categoria (tipo comida, transporte, lazer). Exemplo: “gastei 50 no almoço”. Assim já anoto pra você.\nSe continuar registrando direitinho, você vai ter um controle ótimo e evitar surpresas no fim do mês. Quer lançar seu primeiro gasto agora?"
+    },
+    {
+      "id": 74,
+      "prompt": "top, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra anotar receita é simples: me diga o valor e a descrição, tipo \"receita 3000 salário\" ou só \"receita 500 freelas\". Assim já registro pra você. Se continuar anotando direitinho, vai ver seu saldo sempre no azul, sem sustos. Quer tentar agora? Me fale uma receita!"
+    },
+    {
+      "id": 75,
+      "prompt": "top, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu sou sua parceira para organizar as finanças de forma simples e prática. Você pode anotar seus gastos e receitas, definir metas, acompanhar limites diários ou mensais e receber resumos para não perder o controle. Também aviso se algum gasto pode atrapalhar seu orçamento ou se algo está perto do limite.\nSe continuar assim, seu dinheiro rende mais paz no bolso! Quer começar anotando algum gasto ou definir uma meta?"
+    },
+    {
+      "id": 76,
+      "prompt": "top, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra usar sem erro, é simples: você anota todos os gastos e receitas assim que acontecerem, define limites mensais pra não estourar e cria metas financeiras pra ter objetivos claros. Também dá pra acompanhar o resumo do mês e ver se tá no caminho certo. Se continuar assim, evita surpresas no saldo e controla melhor seu dinheiro. Quer começar anotando um gasto agora?"
+    },
+    {
+      "id": 77,
+      "prompt": "top, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe, que bom começar com tudo! No seu plano Essencial, você pode anotar seus gastos e receitas, ver resumos mensais, definir limites diários ou mensais, e criar metas para economizar. Também consigo mostrar previsão do seu saldo e dar insights para melhorar seu controle.\nSe quiser, já posso te ajudar a anotar um gasto agora — quer tentar?"
+    },
+    {
+      "id": 78,
+      "prompt": "top, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe, que bom te ver animado! Pra começar, vamos anotar seu primeiro gasto ou receita — assim já te ajudo a ver seu dinheiro na prática. Se continuar assim, vai ter controle e menos sustos no fim do mês. Quer que eu te ajude a lançar algo agora?"
+    },
+    {
+      "id": 79,
+      "prompt": "top, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, já estou animada pra ajudar. Me passa seus gastos e receitas aos poucos, tipo “gastei 50 no mercado” ou “recebi 2000 do trabalho”, que eu vou organizar tudo pra você. Assim já vamos vendo onde dá pra ajustar e evitar apertos.\nQuer anotar seu primeiro gasto agora?"
+    },
+    {
+      "id": 80,
+      "prompt": "top, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu te ajudo a organizar seu dinheiro no dia a dia: anoto seus gastos e receitas, mostro resumos do mês, ajudo a definir metas e limites para evitar apertos. Também dou toques pra você não se enrolar e melhorar seu controle financeiro com o tempo. Se continuar assim, sua grana fica sempre no azul! Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 81,
+      "prompt": "certo, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, vamos agilizar isso. Você pode me mandar assim: “Gasto 50 no mercado” ou “Recebi 2000 do salário”. Simples e direto, assim já anoto pra você sem erro.\nSe continuar registrando tudo certinho, já dá pra ver onde dá pra economizar. Me manda um gasto pra eu lançar?"
+    },
+    {
+      "id": 82,
+      "prompt": "certo, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, isso já é metade do caminho! Para lançar seus gastos, basta me dizer o valor e a descrição rapidinho, tipo: “gasto 50 no mercado” ou “comprei café 10 reais”. Eu anoto pra você e já vou mostrando o impacto no seu orçamento.\nSe continuar assim, controlando na hora, evita esquecer e perde menos grana no fim do mês. Quer tentar lançar um gasto agora?"
+    },
+    {
+      "id": 83,
+      "prompt": "certo, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra registrar um gasto, é só me dizer o que comprou, o valor e a data (se for hoje, nem precisa falar a data). Por exemplo: \"gastei 50 no mercado\" ou \"gasto 30 no café ontem\". Assim já anoto pra você.\nSe continuar assim, você vai ficar com controle total do quanto sai todo dia. Quer tentar registrar um gasto agora?"
+    },
+    {
+      "id": 84,
+      "prompt": "certo, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Pra anotar receita é simples: me diga o valor, a origem (tipo salário, venda, presente) e a data, se quiser diferente de hoje. Exemplo: “Receita 3000 salário hoje”. Assim já registro pra você.\nSe continuar anotando tudo certinho, vai ficar fácil ver quanto entra e planejar melhor. Quer testar anotando sua receita agora?"
+    },
+    {
+      "id": 85,
+      "prompt": "certo, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, vamos agilizar sua vida financeira. Eu ajudo você a anotar seus gastos e receitas, criar metas para guardar grana, definir limites para não estourar e mostrar resumos para ver onde seu dinheiro está indo. Também aviso se algum padrão de gasto pode pesar no seu bolso.\nSe continuar assim, você vai ter mais controle e menos surpresas no fim do mês. Quer começar anotando um gasto agora ou definindo uma meta?"
+    },
+    {
+      "id": 86,
+      "prompt": "certo, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, bora evitar tropeços financeiros. Você pode anotar seus gastos e receitas no app, definir limites para não passar do orçamento, criar metas para objetivos (tipo juntar grana pro rolê) e pedir resumos mensais pra ver onde está gastando demais. Se continuar assim, vai ter controle e menos aperto no fim do mês. Quer que te ajude a anotar seu primeiro gasto agora?"
+    },
+    {
+      "id": 87,
+      "prompt": "certo, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que quer começar hoje, vamos juntos! No seu plano Essencial, você pode anotar gastos e receitas, definir limites diários, semanais ou mensais, criar e acompanhar metas financeiras, e pedir resumos de gastos. Com isso, você já evita surpresas e se organiza melhor.\nSe quiser, posso ajudar a anotar seu primeiro gasto agora. Quer testar?"
+    },
+    {
+      "id": 88,
+      "prompt": "certo, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que bom que decidiu começar hoje, vamos agilizar. Primeiro, me conte um gasto ou receita do seu dia para eu anotar — assim já começo a entender seu fluxo. Se preferir, podemos definir um limite mensal para evitar surpresas.\nSe continuar sem controle, pode faltar dinheiro no fim do mês, então bora organizar isso juntos! Qual foi a última despesa que você teve?"
+    },
+    {
+      "id": 89,
+      "prompt": "certo, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, isso já é meio caminho andado. Me conte seus gastos e receitas principais: pode ser o valor, a data e a categoria (exemplo: mercado, salário, transporte). Também ajude definindo algum limite ou meta que queira alcançar. Se continuar assim, vamos evitar surpresas no fim do mês! Quer começar anotando seu primeiro gasto ou receita?"
+    },
+    {
+      "id": 90,
+      "prompt": "certo, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Sou sua assistente financeira que ajuda a organizar seus gastos, receitas, limites e metas para você tomar decisões mais tranquilas. Posso, por exemplo, lançar seus gastos, mostrar seu resumo mensal, ajudar a definir metas e lembrar de contas a pagar. Se você continuar assim, vai evitar apertos no fim do mês. Quer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 91,
+      "prompt": "manda, como posso te mandar meus gastos?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje, vamos facilitar: você pode me mandar seu gasto assim, por exemplo, “gasto 50 no mercado” ou “paguei 120 de luz”. Eu já registro para você rapidinho. Se quiser, pode mandar receita também, tipo “recebi 2000 do salário”.\nSe continuar anotando direitinho, a chance de estourar o orçamento cai bastante. Me manda seu primeiro gasto pra gente começar?"
+    },
+    {
+      "id": 92,
+      "prompt": "manda, como mando meus gastos no dia a dia?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra anotar seus gastos no dia a dia aqui comigo é só mandar a despesa com valor e categoria, tipo “Almoço 25 reais” ou “Uber 18”. Assim eu já registro e te ajudo a controlar melhor. Se continuar anotando tudo certinho, vai evitar sustos no fim do mês.\nQuer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 93,
+      "prompt": "manda, como faço para registrar um gasto?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Pra registrar um gasto, você só precisa me dizer o valor e a descrição, tipo: “gastei 50 no mercado”. Assim já anoto pra você. Se continuar assim, vai ficar fácil controlar onde seu dinheiro está indo. Quer testar agora com algum gasto de hoje?"
+    },
+    {
+      "id": 94,
+      "prompt": "manda, como anoto receita?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, isso já é meio caminho andado. Para anotar receita, é só me dizer o valor, a fonte (tipo salário, venda, etc.) e o dia, se não for hoje. Exemplo: “receita 2000 salário hoje”.\nSe continuar anotando direitinho, vai ter visão clara do que entra e evitar apertos no fim do mês. Quer anotar uma receita agora?"
+    },
+    {
+      "id": 95,
+      "prompt": "manda, como funciona essa assistente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu sou sua parceira para organizar as finanças e evitar dor de cabeça. Ajudo a anotar seus gastos e receitas, mostrar o resumo do mês, definir limites para não estourar o orçamento e criar metas para você alcançar seus objetivos. Também posso avisar se algo pode dar ruim, tipo saldo baixo, e indicar o que fazer.\nSe quiser, posso começar anotando algum gasto ou receita agora?"
+    },
+    {
+      "id": 96,
+      "prompt": "manda, me explica como usar sem erro?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje, vamos simplificar pra não ter erro. Você pode anotar seus gastos e receitas rapidinho, definir limites para não passar do orçamento, criar metas para juntar grana e pedir resumos que mostram onde seu dinheiro foi. Se continuar assim, vai evitar apertos e controlar melhor seu bolso. Quer começar anotando um gasto agora ou definir uma meta?"
+    },
+    {
+      "id": 97,
+      "prompt": "manda, quais comandos principais você entende?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe, que bom que quer começar hoje! Posso te ajudar a anotar gastos e receitas, mostrar seu resumo do mês, criar metas financeiras, definir limites de gastos e acompanhar seus lembretes de contas. Se continuar anotando tudo certinho, evita surpresas no fim do mês.\nQuer começar anotando algum gasto agora?"
+    },
+    {
+      "id": 98,
+      "prompt": "manda, como eu começo com você agora?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi Felipe! Que ótimo que quer começar hoje — bora organizar sua grana para evitar sustos. Primeiro passo: anote um gasto ou receita que você teve hoje, assim já criamos seu histórico. Se continuar assim, você vai ter controle e menos aperto no fim do mês. Quer lançar um gasto agora?"
+    },
+    {
+      "id": 99,
+      "prompt": "manda, como te passo minhas informações financeiras?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Que ótimo que quer começar hoje — bora organizar essa grana. Me passe os gastos e receitas que quiser anotar, por exemplo: \"gastei 50 no mercado\" ou \"recebi 3000 do meu salário\". Também posso ajudar a definir metas ou limites para controlar melhor.\nSe quiser, já manda o primeiro gasto ou receita para eu registrar?"
+    },
+    {
+      "id": 100,
+      "prompt": "manda, o que você faz exatamente?",
+      "ok": true,
+      "flags": [],
+      "reply": "Oi, Felipe! Eu ajudo a organizar suas finanças pessoais de forma simples, tipo anotar seus gastos e receitas, mostrar resumos mensais, definir limites para não estourar o orçamento e criar metas para você alcançar seus objetivos.\nSe continuar assim, vai evitar aperto no fim do mês e controlar melhor seu dinheiro. Que tal começar anotando um gasto agora?"
+    }
+  ]
+}
