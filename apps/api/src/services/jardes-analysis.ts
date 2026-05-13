@@ -79,6 +79,15 @@ export async function ensureJardesSchema(): Promise<void> {
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS jardes_outbound_templates (
+      id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      template_key  TEXT        NOT NULL UNIQUE,
+      message_text  TEXT        NOT NULL,
+      is_active     BOOLEAN     NOT NULL DEFAULT TRUE,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 }
 
@@ -165,6 +174,39 @@ async function deactivateTemplateOverride(key: string): Promise<boolean> {
     [key]
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+async function setOutboundTemplate(key: string, text: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO jardes_outbound_templates (template_key, message_text, is_active, updated_at)
+     VALUES ($1, $2, TRUE, NOW())
+     ON CONFLICT (template_key) DO UPDATE
+       SET message_text = EXCLUDED.message_text,
+           is_active = TRUE,
+           updated_at = NOW()`,
+    [key, text]
+  );
+}
+
+async function getOutboundTemplate(key: string): Promise<string | null> {
+  const result = await pool.query<{ message_text: string }>(
+    `SELECT message_text
+     FROM jardes_outbound_templates
+     WHERE template_key = $1 AND is_active = TRUE
+     LIMIT 1`,
+    [key]
+  );
+  return result.rows[0]?.message_text ?? null;
+}
+
+async function listOutboundTemplates(): Promise<Array<{ key: string; text: string }>> {
+  const result = await pool.query<{ template_key: string; message_text: string }>(
+    `SELECT template_key, message_text
+     FROM jardes_outbound_templates
+     WHERE is_active = TRUE
+     ORDER BY updated_at DESC`
+  );
+  return result.rows.map((r) => ({ key: r.template_key, text: r.message_text }));
 }
 
 async function applyKnowledgeEntry(entry: {
@@ -751,6 +793,28 @@ function formatConversationForAnalysis(messages: Array<{ direction: string; mess
   ).join('\n');
 }
 
+function extractManualMessageToSend(command: string): string | null {
+  const explicitField =
+    command.match(/(?:mensagem|texto)\s*[:\-]\s*["“]?([\s\S]+?)["”]?\s*$/i) ??
+    command.match(/(?:escreve|escrever)\s*[:\-]\s*["“]?([\s\S]+?)["”]?\s*$/i);
+  if (explicitField?.[1]) return explicitField[1].trim();
+
+  const quoted =
+    command.match(/["“]([^"”]{3,})["”]/) ??
+    command.match(/(?:diga|fala|fale)\s+(.{3,})$/i);
+  if (quoted?.[1]) return quoted[1].trim();
+
+  return null;
+}
+
+function extractOutboundTemplateKey(command: string): string | null {
+  const byKeyword =
+    command.match(/template\s*[:\-]\s*([a-z0-9][a-z0-9\-_]+)/i) ??
+    command.match(/mensagem\s*[:\-]\s*([a-z0-9][a-z0-9\-_]+)/i);
+  if (byKeyword?.[1]) return byKeyword[1].trim().toLowerCase();
+  return null;
+}
+
 // ─────────────────────────────────────────────
 // Fetches last N turns of owner <> Jardes conversation for GPT context
 // ─────────────────────────────────────────────
@@ -936,6 +1000,32 @@ export async function handleJardesDirectCommand(params: {
       return reply;
     }
 
+    // ── Templates de envio manual da Iara ─────────────────────
+    if (/\b(lista|listar|mostra|mostrar|ver)\b.{0,30}\btemplates?\b.{0,20}\b(envio|mensagem)\b/i.test(normalized)) {
+      const templates = await listOutboundTemplates();
+      if (templates.length === 0) {
+        reply = '*[JARDES]* Não há templates de envio cadastrados.';
+      } else {
+        const lines = templates.map((t) => `• *${t.key}*: "${t.text.slice(0, 90)}${t.text.length > 90 ? '...' : ''}"`);
+        reply = `*[JARDES]* Templates de envio ativos:\n\n${lines.join('\n')}`;
+      }
+      await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+      return reply;
+    }
+
+    if (/\b(cria|criar|salva|salvar|define|definir)\b.{0,30}\btemplate\b.{0,20}\b(envio|mensagem)?\b/i.test(normalized)) {
+      const tplMatch = cleanCommand.match(/template\s+([a-z0-9][a-z0-9\-_]+)\s*[:\-]\s*(.+)/is);
+      if (!tplMatch) {
+        reply = '*[JARDES]* Formato inválido. Use: "Jardes, cria template followup-1: <mensagem>".';
+      } else {
+        const [, key, text] = tplMatch;
+        await setOutboundTemplate(key.trim().toLowerCase(), text.trim());
+        reply = `*[JARDES]* Template de envio *${key.trim().toLowerCase()}* salvo.`;
+      }
+      await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+      return reply;
+    }
+
     const openai = config.openAiApiKey
       ? new OpenAI({ apiKey: config.openAiApiKey, organization: config.openAiOrganizationId || undefined })
       : null;
@@ -949,6 +1039,47 @@ export async function handleJardesDirectCommand(params: {
     // ── Lookup por número de telefone ──────────────────────────
     const phoneMatch = cleanCommand.match(/\b(\d{2}[\s\-]?\d{4,5}[\s\-]?\d{4})\b/) ??
                        cleanCommand.match(/\b(\d{10,13})\b/);
+
+    // ── Comando explícito: enviar mensagem da Iara para um número ──
+    const manualSendIntent =
+      /\biara\b/i.test(normalized) &&
+      /\b(manda|mandar|envia|enviar|dispara|disparar|chama|chamar)\b/i.test(normalized) &&
+      /\b(mensagem|msg|n[úu]mero|contato|whatsapp)\b/i.test(normalized);
+
+    if (manualSendIntent && phoneMatch) {
+      const rawPhone = phoneMatch[1];
+      const digits = rawPhone.replace(/\D/g, '');
+      const to = `+${digits}`;
+
+      if (digits.length < 10 || digits.length > 13) {
+        reply = `*[JARDES]* Número inválido: ${rawPhone}. Me passa no formato com DDD, por exemplo: +55 11 95609-0319.`;
+        await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+        return reply;
+      }
+
+      const selectedMessage = extractManualMessageToSend(cleanCommand);
+      const selectedTemplateKey = extractOutboundTemplateKey(cleanCommand);
+      const templateMessage = selectedTemplateKey ? await getOutboundTemplate(selectedTemplateKey) : null;
+      const outboundMessage = selectedMessage ?? templateMessage;
+
+      if (!outboundMessage) {
+        reply = `*[JARDES]* Para eu mandar pela Iara, me passe a mensagem exata.\nFormato: "Jardes, manda para ${to} | mensagem: <seu texto>"`;
+        await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+        return reply;
+      }
+
+      const sendResult = await sendWhatsAppText({ to, message: outboundMessage });
+      if (!sendResult.sent) {
+        reply = `*[JARDES]* Não consegui enviar para ${to}. Motivo: ${sendResult.error ?? 'falha desconhecida'}.`;
+        await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+        return reply;
+      }
+
+      reply = `*[JARDES]* Mensagem enviada para ${to} via ${sendResult.provider ?? 'canal padrão'}.\nTexto: "${outboundMessage}"`;
+      await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
+      return reply;
+    }
+
     if (phoneMatch) {
       const convData = await lookupConversationsByPhone(phoneMatch[1]);
       if (!convData) {
