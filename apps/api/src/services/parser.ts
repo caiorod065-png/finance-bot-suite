@@ -1129,6 +1129,42 @@ function sanitizeAssistantReply(text: string): string {
   return `${cleaned.slice(0, 757).trimEnd()}...`;
 }
 
+function extractOpeningToken(text: string): string {
+  const firstLine = text.trim().split('\n')[0] ?? '';
+  const normalized = normalizePtText(firstLine);
+  const token = normalized.match(/^([a-zÀ-ÿ]+)/i)?.[1] ?? '';
+  return token;
+}
+
+function forceOpeningVariation(currentReply: string, previousReply?: string | null): string {
+  if (!previousReply) return currentReply;
+
+  const currentToken = extractOpeningToken(currentReply);
+  const previousToken = extractOpeningToken(previousReply);
+  if (!currentToken || !previousToken || currentToken !== previousToken) return currentReply;
+
+  const firstLine = currentReply.split('\n')[0] ?? currentReply;
+  const rest = currentReply.slice(firstLine.length).trimStart();
+
+  const replacements: Record<string, string> = {
+    certo: 'Perfeito,',
+    boa: 'Show,',
+    bom: 'Perfeito,',
+    oi: 'Perfeito,',
+    olá: 'Beleza,',
+    ola: 'Beleza,',
+    entendido: 'Perfeito,',
+    ok: 'Combinado,',
+    pronto: 'Fechado,',
+    anotado: 'Registrado,',
+    registrado: 'Anotado,'
+  };
+
+  const replacement = replacements[currentToken] ?? 'Perfeito,';
+  const mutated = `${replacement} ${firstLine}`.replace(/\s+/g, ' ').trim();
+  return rest ? `${mutated}\n${rest}` : mutated;
+}
+
 function fallbackSupportReply(params: {
   text: string;
   customerName?: string | null;
@@ -1253,6 +1289,7 @@ export async function generateScopedSupportReply(params: {
   replyMode?: 'default' | 'owner';
   jardesKnowledge?: string;
   customerProfileFacts?: string;
+  clientContextHints?: string;
 }): Promise<string | null> {
   if (!client) {
     return null;
@@ -1395,6 +1432,11 @@ export async function generateScopedSupportReply(params: {
       '--- APRENDIZADOS DO JARDES (APLICAR SEMPRE) ---',
       params.jardesKnowledge
     ] : []),
+    ...(params.clientContextHints ? [
+      '',
+      '--- CONTEXTO DO CLIENTE (adapte tom e linguagem conforme indicado) ---',
+      params.clientContextHints
+    ] : []),
     ...(params.conversationHistory && params.conversationHistory.length > 0 ? [
       '',
       '--- HISTÓRICO RECENTE DA CONVERSA (do mais antigo ao mais recente) ---',
@@ -1422,7 +1464,10 @@ export async function generateScopedSupportReply(params: {
     void recordOpenAiUsageFromResponse(response, config.openAiAgentModel);
     const raw = response.output_text?.trim();
     if (!raw) return null;
-    const reply = sanitizeAssistantReply(raw);
+    const reply = forceOpeningVariation(
+      sanitizeAssistantReply(raw),
+      params.previousAssistantReply ?? null
+    );
     return reply.length > 0 ? reply : null;
   };
 
@@ -1441,6 +1486,63 @@ export async function generateScopedSupportReply(params: {
   } catch {
     return fallbackSupportReply(params);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Client context detection — DDD/region, emotion, language informality
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DDD_TO_STATE: Record<string, string> = {
+  '11': 'São Paulo (capital)', '12': 'São Paulo (interior)', '13': 'São Paulo (litoral)',
+  '14': 'São Paulo (interior)', '15': 'São Paulo (interior)', '16': 'São Paulo (interior)',
+  '17': 'São Paulo (interior)', '18': 'São Paulo (interior)', '19': 'São Paulo (interior/Campinas)',
+  '21': 'Rio de Janeiro', '22': 'Rio de Janeiro (interior)', '24': 'Rio de Janeiro (interior)',
+  '27': 'Espírito Santo', '28': 'Espírito Santo (interior)',
+  '31': 'Minas Gerais (BH)', '32': 'Minas Gerais', '33': 'Minas Gerais',
+  '34': 'Minas Gerais', '35': 'Minas Gerais', '37': 'Minas Gerais', '38': 'Minas Gerais',
+  '41': 'Paraná (Curitiba)', '42': 'Paraná', '43': 'Paraná', '44': 'Paraná', '45': 'Paraná', '46': 'Paraná',
+  '47': 'Santa Catarina', '48': 'Santa Catarina (Florianópolis)', '49': 'Santa Catarina',
+  '51': 'Rio Grande do Sul (Porto Alegre)', '53': 'Rio Grande do Sul', '54': 'Rio Grande do Sul', '55': 'Rio Grande do Sul',
+  '61': 'Brasília (DF)', '62': 'Goiás', '63': 'Tocantins', '64': 'Goiás',
+  '65': 'Mato Grosso', '66': 'Mato Grosso', '67': 'Mato Grosso do Sul', '68': 'Acre', '69': 'Rondônia',
+  '71': 'Bahia (Salvador)', '73': 'Bahia', '74': 'Bahia', '75': 'Bahia', '77': 'Bahia',
+  '79': 'Sergipe', '81': 'Pernambuco (Recife)', '82': 'Alagoas', '83': 'Paraíba', '84': 'Rio Grande do Norte',
+  '85': 'Ceará (Fortaleza)', '86': 'Piauí', '87': 'Pernambuco (interior)', '88': 'Ceará (interior)',
+  '89': 'Piauí (interior)', '91': 'Pará (Belém)', '92': 'Amazonas (Manaus)', '93': 'Pará',
+  '94': 'Pará', '95': 'Roraima', '96': 'Amapá', '97': 'Amazonas', '98': 'Maranhão', '99': 'Maranhão'
+};
+
+export function detectClientContext(phone: string, text: string): string {
+  const hints: string[] = [];
+
+  // DDD → region
+  const digits = phone.replace(/\D/g, '');
+  const ddd = digits.length >= 4 ? digits.slice(digits.startsWith('55') ? 2 : 0, digits.startsWith('55') ? 4 : 2) : '';
+  const region = DDD_TO_STATE[ddd];
+  if (region) hints.push(`Região do cliente (pelo DDD ${ddd}): ${region}`);
+
+  const lower = text.toLowerCase();
+
+  // Emotion/urgency detection
+  const isIrritado = /\b(absurdo|ridículo|ridiculo|me irritei|que raiva|que ódio|odio|pessimo|pésssimo|horrível|horrible|nao funciona|não funciona|tá errado|ta errado|errou|errou tudo|cancelar tudo|quero cancelar|dinheiro sumiu|cadê meu|cade meu)\b/.test(lower);
+  const isConfuso = /\b(nao entendi|não entendi|confuso|confusa|perdido|perdida|nao sei|não sei|como assim|oque é|o que é isso|que negocio|que negócio|nao to entendendo|não to entendendo)\b/.test(lower);
+  const isUrgente = /\b(urgente|rapido|rápido|agora|agora mesmo|preciso ja|preciso já|me ajuda logo|socorro|importante|corre|corre lá)\b/.test(lower);
+  const isInseguro = /\b(sera que|será que|acho que|nao sei se|não sei se|tenho medo|fico com medo|risco|perigoso|errado)\b/.test(lower);
+
+  if (isIrritado) hints.push('Tom emocional: cliente irritado ou frustrado → seja objetiva, calma e resolutiva. Não filosofe, vá direto à solução.');
+  else if (isConfuso) hints.push('Tom emocional: cliente confuso → explique passo a passo com linguagem simples. Evite jargões.');
+  else if (isUrgente) hints.push('Tom emocional: cliente com urgência → responda de forma direta e rápida, sem enrolação.');
+  else if (isInseguro) hints.push('Tom emocional: cliente inseguro → responda com confiança e clareza, valide a dúvida antes de responder.');
+
+  // Language informality level
+  const hasGirias = /\b(mano|véi|vei|cara|parceiro|parça|bro|tipo assim|saca|sacou|tá ligado|ta ligado|lek|lekão|oxe|eita|vixe|pow|po |pô|afe|nossa mano|nós|sô|trem bom|trem ruim|mainha|painho|meow)\b/.test(lower);
+  const isInformal = /\b(tô|to |vc |pq |tbm|msm|n sei|blz|flw|vlw|kkk|haha|rsrs|né|né\?|tá|ta |kk)\b/.test(lower);
+
+  if (hasGirias) hints.push('Nível de linguagem: muito informal com gírias → pode responder de forma próxima e descontraída, mas sem forçar gírias. Ex: "Fechado, mano" em vez de "Perfeito, senhor".');
+  else if (isInformal) hints.push('Nível de linguagem: informal → mantenha tom leve e conversacional, sem excesso de formalidade.');
+  else hints.push('Nível de linguagem: neutro/formal → mantenha tom profissional e educado.');
+
+  return hints.join('\n');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
