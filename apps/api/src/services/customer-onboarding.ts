@@ -78,27 +78,27 @@ function parseNinetyDayGoal(text: string): string | null {
 const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     key: 'preferred_name',
-    question: 'Antes de tudo: como você prefere que eu te chame?',
+    question: 'Para personalizar seu atendimento: como você prefere que eu te chame?',
     parse: parsePreferredName
   },
   {
     key: 'age',
-    question: 'Boa. Quantos anos você tem hoje?',
+    question: 'Perfeito. Qual é a sua idade hoje?',
     parse: parseAge
   },
   {
     key: 'income_range',
-    question: 'Pra eu te orientar melhor: sua faixa de renda mensal é até R$2 mil, R$2-5 mil, R$5-10 mil ou acima de R$10 mil?',
+    question: 'Para calibrar suas recomendações: sua faixa de renda mensal está entre até R$2 mil, R$2–5 mil, R$5–10 mil ou acima de R$10 mil?',
     parse: parseIncomeRange
   },
   {
     key: 'monthly_spend_range',
-    question: 'E seu gasto mensal total hoje está em qual faixa aproximada?',
+    question: 'Hoje, em qual faixa está seu gasto mensal total aproximado?',
     parse: parseMonthlySpendRange
   },
   {
     key: 'goal_90d',
-    question: 'Última: qual seu principal objetivo financeiro para os próximos 90 dias?',
+    question: 'Para fechar: qual é seu principal objetivo financeiro para os próximos 90 dias?',
     parse: parseNinetyDayGoal
   }
 ];
@@ -166,7 +166,7 @@ async function saveOnboardingState(customerId: string, status: OnboardingStatus,
 
 export async function beginSmartOnboarding(customerId: string): Promise<string> {
   await saveOnboardingState(customerId, 'in_progress', 0);
-  return `Perfeito, seu plano já está ativo ✅\n\nPra eu te atender de forma mais inteligente, vou fazer 5 perguntas rápidas.\n${ONBOARDING_STEPS[0].question}`;
+  return `Excelente — seu plano já está ativo ✅\n\nPara entregar uma gestão financeira realmente personalizada, vou conduzir um onboarding executivo com 5 perguntas rápidas.\n${ONBOARDING_STEPS[0].question}`;
 }
 
 export async function handleSmartOnboardingReply(params: {
@@ -180,7 +180,7 @@ export async function handleSmartOnboardingReply(params: {
 
   if (ONBOARDING_PAUSE_SIGNALS.test(normalizeText(params.text))) {
     await saveOnboardingState(params.customerId, 'snoozed', state.currentStep);
-    return 'Sem problema. Pauso o onboarding por enquanto e seguimos o fluxo normal. Quando quiser retomar, é só dizer: "retomar onboarding".';
+    return 'Perfeito. Pauso o onboarding por agora e seguimos no fluxo normal. Quando quiser retomar, me diga: "retomar onboarding".';
   }
 
   const currentStep = ONBOARDING_STEPS[state.currentStep];
@@ -191,7 +191,7 @@ export async function handleSmartOnboardingReply(params: {
 
   const parsed = currentStep.parse(params.text);
   if (!parsed) {
-    return `Não captei bem essa resposta. ${currentStep.question}`;
+    return `Quero garantir precisão no seu perfil. ${currentStep.question}`;
   }
 
   await upsertCustomerProfileFact({
@@ -204,11 +204,11 @@ export async function handleSmartOnboardingReply(params: {
   const nextStep = state.currentStep + 1;
   if (nextStep >= ONBOARDING_STEPS.length) {
     await saveOnboardingState(params.customerId, 'completed', nextStep);
-    return 'Fechamos seu onboarding inicial ✅ Já personalizei seu perfil e vou te orientar com base nisso daqui pra frente.';
+    return 'Onboarding concluído ✅ Seu perfil estratégico já foi configurado, e daqui em diante minhas recomendações serão ajustadas ao seu contexto.';
   }
 
   await saveOnboardingState(params.customerId, 'in_progress', nextStep);
-  return `Perfeito. ${ONBOARDING_STEPS[nextStep].question}`;
+  return `Ótimo. ${ONBOARDING_STEPS[nextStep].question}`;
 }
 
 export async function resumeSmartOnboarding(customerId: string): Promise<string | null> {
@@ -216,6 +216,5 @@ export async function resumeSmartOnboarding(customerId: string): Promise<string 
   if (state.status === 'completed') return null;
   const step = Math.max(0, Math.min(state.currentStep, ONBOARDING_STEPS.length - 1));
   await saveOnboardingState(customerId, 'in_progress', step);
-  return `Retomando de onde paramos 👇\n${ONBOARDING_STEPS[step].question}`;
+  return `Retomando exatamente de onde paramos 👇\n${ONBOARDING_STEPS[step].question}`;
 }
-
