@@ -89,6 +89,10 @@ export type ParsedIntent =
       type: 'ask-savings-goal-status';
     }
   | {
+      type: 'set-savings-goal-missing-info';
+      deadlineIso: string | null;
+    }
+  | {
       type: 'cancel-savings-goal';
     }
   | {

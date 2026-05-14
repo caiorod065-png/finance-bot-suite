@@ -713,7 +713,7 @@ function ruleBased(text: string, now: Date, context?: ParseIntentContext): Parse
     return { type: 'ask-savings-goal-status' };
   }
 
-  if (/\b(juntar|poupar|guardar|economizar|meta de|objetivo de)\b/.test(normalized)) {
+  if (/\b(juntar|poupar|guardar|economizar|meta de|objetivo de|fazer.*meta|fazer uma meta|quero.*meta|quero uma meta|criar.*meta|criar uma meta)\b/.test(normalized)) {
     const amountCents = parseAmountToCents(lower);
     const deadline = parseSavingsGoalDeadline(normalized, now);
     if (amountCents && amountCents > 0 && deadline) {
@@ -721,6 +721,7 @@ function ruleBased(text: string, now: Date, context?: ParseIntentContext): Parse
       const description = descMatch ? descMatch[1].trim() : 'meta de economia';
       return { type: 'set-savings-goal', description, targetAmountCents: amountCents, deadlineIso: deadline };
     }
+    return { type: 'set-savings-goal-missing-info', deadlineIso: deadline ?? null };
   }
 
   // Simulador de decisões financeiras
