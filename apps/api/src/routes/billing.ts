@@ -4,7 +4,8 @@ import { config } from '../config.js';
 import { pool } from '../db/pool.js';
 import { createFamilyGroup, getCustomerSubscription, logConversation, recordSubscriptionPayment } from '../services/ledger.js';
 import { getPlanDefinition } from '../services/plans.js';
-import { sendPaymentThanksMessage, sendWelcomeActivationMessage } from '../services/whatsapp-outbound.js';
+import { beginSmartOnboarding } from '../services/customer-onboarding.js';
+import { sendPaymentThanksMessage, sendWelcomeActivationMessage, sendWhatsAppText } from '../services/whatsapp-outbound.js';
 
 const asaasWebhookSchema = z.object({
   event: z.string(),
@@ -185,6 +186,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const planFeatures = plan.features.map((f) => featureLabels[f] ?? f);
 
     let thanksDelivery: { sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' } | null = null;
+    let onboardingDelivery: { sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' } | null = null;
     if (phone) {
       const sent = isFirstActivation
         ? await sendWelcomeActivationMessage({
@@ -201,6 +203,15 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           });
       thanksDelivery = sent;
 
+      if (isFirstActivation) {
+        const onboardingKickoff = await beginSmartOnboarding(parsedRef.customerId);
+        const onboardingSent = await sendWhatsAppText({
+          to: phone,
+          message: onboardingKickoff
+        });
+        onboardingDelivery = { sent: onboardingSent.sent, provider: onboardingSent.provider };
+      }
+
       await logConversation(
         parsedRef.customerId,
         'outbound',
@@ -209,6 +220,17 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           : 'Pagamento confirmado, mas não consegui enviar mensagem automática no WhatsApp.',
         { provider: sent.provider ?? null, source: isFirstActivation ? 'welcome-activation' : 'payment-thanks' }
       );
+
+      if (isFirstActivation) {
+        await logConversation(
+          parsedRef.customerId,
+          'outbound',
+          onboardingDelivery?.sent
+            ? `Onboarding inicial enviado (${onboardingDelivery.provider}).`
+            : 'Onboarding inicial não foi enviado no WhatsApp.',
+          { provider: onboardingDelivery?.provider ?? null, source: 'onboarding-kickoff' }
+        );
+      }
     }
 
     await logConversation(
@@ -218,6 +240,6 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       { provider: 'asaas', event: body.data.event }
     );
 
-    return { ok: true, applied: true, result, thanksDelivery };
+    return { ok: true, applied: true, result, thanksDelivery, onboardingDelivery };
   });
 }

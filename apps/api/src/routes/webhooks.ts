@@ -7,6 +7,11 @@ import {
   extractAndSaveProfileFacts,
   formatProfileFactsForPrompt
 } from '../services/parser.js';
+import {
+  handleSmartOnboardingReply,
+  resumeSmartOnboarding,
+  shouldBypassOnboardingForMessage
+} from '../services/customer-onboarding.js';
 import { sendWelcomeActivationMessage } from '../services/whatsapp-outbound.js';
 import type { ParsedIntent } from '../types.js';
 import {
@@ -3685,6 +3690,34 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
         plan: planResult
       }
     };
+  }
+
+  if (!isOwnerMode && access.allowed) {
+    const wantsResumeOnboarding = /\b(retomar onboarding|continuar onboarding|voltar onboarding)\b/i.test(payload.text);
+    if (wantsResumeOnboarding) {
+      const resumed = await resumeSmartOnboarding(customer.id);
+      if (resumed) {
+        await logConversation(customer.id, 'outbound', resumed, { intent: 'onboarding-resume' });
+        return {
+          replyText: resumed,
+          responseBody: { ok: true, to: payload.from, replyText: resumed, intent: { type: 'onboarding-resume' } }
+        };
+      }
+    }
+
+    if (!shouldBypassOnboardingForMessage(payload.text)) {
+      const onboardingReply = await handleSmartOnboardingReply({
+        customerId: customer.id,
+        text: payload.text
+      });
+      if (onboardingReply) {
+        await logConversation(customer.id, 'outbound', onboardingReply, { intent: 'onboarding-step' });
+        return {
+          replyText: onboardingReply,
+          responseBody: { ok: true, to: payload.from, replyText: onboardingReply, intent: { type: 'onboarding-step' } }
+        };
+      }
+    }
   }
 
   if (isGreetingMessage(payload.text)) {
