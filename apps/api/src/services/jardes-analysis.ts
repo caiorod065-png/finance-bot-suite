@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { pool } from '../db/pool.js';
-import { isOwnerWhatsappNumber, logConversation } from './ledger.js';
+import { isOwnerWhatsappNumber, logConversation, getPendingIaraDoubts, markIaraDoubtsSent } from './ledger.js';
 import { sendWhatsAppText } from './whatsapp-outbound.js';
 
 // ─────────────────────────────────────────────
@@ -539,14 +539,25 @@ Máximo 5 issues + 3 template_overrides. Priorize os mais impactantes para o cli
     }
 
     const issueLines = issues.map((issue, i) =>
-      `${i + 1}. *${issue.topic}*\n   Problema: ${issue.problem}\n   Melhoria: ${issue.improvement_rule}`
+      [
+        `${i + 1}. *${issue.topic}*`,
+        `   Problema: ${issue.problem}`,
+        `   Proposta do Jardes: ${issue.improvement_rule}`,
+        `   Sua visão: concorda com essa proposta ou quer ajustar?`
+      ].join('\n')
     ).join('\n\n');
 
     const templateOverrideLines = templateOverrides.length > 0
       ? [
           '',
           '🔧 *Templates a atualizar:*',
-          ...templateOverrides.map(t => `• ${t.template_key}: "${t.new_text.slice(0, 80)}${t.new_text.length > 80 ? '...' : ''}"\n  Motivo: ${t.reason}`)
+          ...templateOverrides.map(t =>
+            [
+              `• ${t.template_key}: "${t.new_text.slice(0, 80)}${t.new_text.length > 80 ? '...' : ''}"`,
+              `  Motivo: ${t.reason}`,
+              '  Sua visão: mantém esse texto ou quer outro?'
+            ].join('\n')
+          )
         ].join('\n')
       : '';
 
@@ -558,7 +569,8 @@ Máximo 5 issues + 3 template_overrides. Priorize os mais impactantes para o cli
         : [`Felipe, analisei ${conversations.length} conversa(s). Sem issues de comportamento.`]),
       templateOverrideLines,
       '',
-      'Posso aplicar essas melhorias?',
+      'Confirma se seguimos com essas propostas?',
+      'Se quiser ajustes, me responde por item (ex: "item 2: ...").',
       buildStatusFooter(knowledgeEntries.length)
     ].join('\n');
 
@@ -1180,4 +1192,50 @@ Hoje: ${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric'
 
   await logConversation(ownerCustomerId, 'outbound', reply, { source: 'jardes-message' });
   return reply;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Daily Doubt Digest — envia dúvidas da Iara para Felipe todo dia às 22h
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function sendDailyDoubtDigest(): Promise<{ sent: boolean; doubtCount: number }> {
+  const doubts = await getPendingIaraDoubts();
+  if (doubts.length === 0) return { sent: false, doubtCount: 0 };
+
+  const ownerNumbers = config.ownerWhatsappNumbers;
+  if (!ownerNumbers || ownerNumbers.length === 0) return { sent: false, doubtCount: 0 };
+
+  const lines: string[] = [
+    `Felipe, aqui estão minhas dúvidas de hoje (${doubts.length} situação${doubts.length > 1 ? 'ões' : ''} que não soube resolver bem):`
+  ];
+
+  doubts.forEach((doubt, i) => {
+    lines.push('');
+    lines.push(`*${i + 1}.* Quando o cliente perguntou:`);
+    lines.push(`"${doubt.originalMessage}"`);
+
+    if (doubt.iaraResponse) {
+      lines.push(`Eu respondi:`);
+      lines.push(`"${doubt.iaraResponse.slice(0, 200)}${doubt.iaraResponse.length > 200 ? '...' : ''}"`);
+      lines.push(`Essa foi a resposta certa? Se não, o que devo responder?`);
+    } else {
+      lines.push(`Não soube responder. O que devo dizer nessa situação?`);
+    }
+  });
+
+  lines.push('');
+  lines.push('Pode responder mensagem por mensagem e eu vou aprender com suas correções. 🙏');
+
+  const message = lines.join('\n');
+
+  for (const number of ownerNumbers) {
+    try {
+      await sendWhatsAppText({ to: number, message });
+    } catch {
+      // ignora falha em número individual
+    }
+  }
+
+  await markIaraDoubtsSent(doubts.map(d => d.id));
+  return { sent: true, doubtCount: doubts.length };
 }
