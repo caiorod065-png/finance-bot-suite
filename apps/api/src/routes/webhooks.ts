@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   generateScopedSupportReply,
+  detectClientContext,
   inferCategory,
   parseIntent,
   extractAndSaveProfileFacts,
@@ -78,7 +79,8 @@ import {
   getFamilyVaultProgress,
   getSpendingByCategory,
   detectImpulsivePattern,
-  getCustomerProfileFacts
+  getCustomerProfileFacts,
+  logIaraDoubt
 } from '../services/ledger.js';
 import { config } from '../config.js';
 import { createAsaasCharge } from '../services/billing-asaas.js';
@@ -97,7 +99,8 @@ import {
   getTemplateOverride,
   handleJardesDirectCommand,
   isJardesModeActive,
-  processOwnerJardesResponse
+  processOwnerJardesResponse,
+  runJardesInterceptor
 } from '../services/jardes-analysis.js';
 
 // ─────────────────────────────────────────────
@@ -3158,7 +3161,8 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
       conversationHistory,
       replyMode: isOwnerMode ? 'owner' : 'default',
       jardesKnowledge,
-      customerProfileFacts: formatProfileFactsForPrompt(profileFacts)
+      customerProfileFacts: formatProfileFactsForPrompt(profileFacts),
+      clientContextHints: isOwnerMode ? undefined : detectClientContext(payload.from, payload.text)
     });
   };
 
@@ -5864,6 +5868,15 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
   }
 
+  if (intent.type === 'set-savings-goal-missing-info') {
+    const deadlinePart = intent.deadlineIso
+      ? ` para ${new Date(intent.deadlineIso + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`
+      : '';
+    const outText = `Claro, adoro isso! 🎯\n\nMe diz: quanto você quer juntar${deadlinePart}? E pra quê é essa meta?\n\nManda assim: "meta de R$ 2.000 para viagem até julho"`;
+    await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
+    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
+  }
+
   if (intent.type === 'set-savings-goal') {
     const capacity = await getCustomerFinancialCapacity(customer.id);
     const deadlineDate = new Date(intent.deadlineIso + 'T23:59:59');
@@ -6582,6 +6595,18 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     reason: 'reason' in intent ? intent.reason : undefined,
     supportMode: aiSupportText ? 'ai' : 'default'
   });
+
+  // Log doubt when Iara truly couldn't understand the message (pure fallback, not owner mode)
+  if (!aiSupportText && !isOwnerMode) {
+    void logIaraDoubt({
+      customerId: customer.id,
+      customerPhone: payload.from,
+      originalMessage: payload.text,
+      iaraResponse: helpText,
+      doubtType: 'fallback'
+    });
+  }
+
   return {
     replyText: helpText,
     responseBody: { ok: true, to: payload.from, replyText: helpText, intent }
@@ -6661,12 +6686,23 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const processed = await processInboundMessage(payload);
-    if (isMetaIncoming && processed.replyText) {
-      await sendWhatsAppTextMessage(payload.from, processed.replyText);
+    let finalReplyText = processed.replyText;
+
+    if (finalReplyText && !isOwnerWhatsappNumber(payload.from)) {
+      const intercepted = await runJardesInterceptor({
+        customerPhone: payload.from,
+        customerMessage: payload.text,
+        candidateResponse: finalReplyText,
+        isOwnerMode: false
+      });
+      finalReplyText = intercepted.finalResponse;
     }
 
+    if (isMetaIncoming && finalReplyText) {
+      await sendWhatsAppTextMessage(payload.from, finalReplyText);
+    }
 
-    return processed.responseBody;
+    return { ...processed.responseBody, replyText: finalReplyText };
   });
 
   app.post('/webhooks/whatsapp/twilio', async (request, reply) => {
@@ -6679,9 +6715,21 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const processed = await processInboundMessage(payload);
+    let finalReplyText = processed.replyText;
+
+    if (finalReplyText && !isOwnerWhatsappNumber(payload.from)) {
+      const intercepted = await runJardesInterceptor({
+        customerPhone: payload.from,
+        customerMessage: payload.text,
+        candidateResponse: finalReplyText,
+        isOwnerMode: false
+      });
+      finalReplyText = intercepted.finalResponse;
+    }
+
     return reply
       .header('Content-Type', 'text/xml; charset=utf-8')
-      .send(twimlResponse(processed.replyText));
+      .send(twimlResponse(finalReplyText));
   });
 }
 
