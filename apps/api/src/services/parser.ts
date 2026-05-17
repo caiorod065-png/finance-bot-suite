@@ -437,6 +437,28 @@ function hasExplicitTransactionalSignal(normalized: string): boolean {
   return /\b(gastei|paguei|comprei|recebi|ganhei|anota|anotar|registra|registrar|coloca|colocar|adiciona|adicionar|adicione|lanca|lança|corrige|corrigir|apaga|apagar|deleta|deletar|remove|remover|cria|criar|define|definir)\b/.test(normalized);
 }
 
+function explicitTransactionClause(text: string): string | null {
+  const clauses = text
+    .split(/[?;\n]+/)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+
+  for (const clause of clauses.reverse()) {
+    const normalized = normalizePtText(clause);
+    const hasTransactionVerb = /\b(gastei|paguei|comprei|recebi|ganhei)\b/.test(normalized);
+    if (!hasTransactionVerb) continue;
+    if (!parseAmountToCents(clause)) continue;
+
+    // A question earlier in the same WhatsApp message should not block a clear
+    // trailing statement such as "ontem gastei 45 reais em lanche".
+    if (hasQuestionSignal(normalized, clause)) continue;
+
+    return clause;
+  }
+
+  return null;
+}
+
 function hasQuestionSignal(normalized: string, original: string): boolean {
   if (original.includes('?')) return true;
   if (/\b(so tenho|só tenho|ate agora|até agora|isso mesmo|tem certeza|como assim|por que|por quê|esse e meu unico gasto|esse é meu único gasto|eu so gastei isso|eu só gastei isso|nao entendi|não entendi|quer dizer que|como voce chegou|como você chegou|de onde saiu)\b/.test(normalized)) {
@@ -661,11 +683,35 @@ function ruleBased(text: string, now: Date, context?: ParseIntentContext): Parse
     }
   }
 
+  if (hasHowToUseSignal(normalized)) {
+    return {
+      type: 'help',
+      reason: 'ask-how-to-use'
+    };
+  }
+
   // User wants to register a transaction but hasn't provided the amount
   const wantsToRegister = /\b(quero|vou|preciso|posso|vamos)\b.{0,20}\b(anotar|registrar|lancar|adicionar|colocar|botar)\b.{0,20}\b(gasto|despesa|compra|pagamento|lancamento|entrada|receita)\b/i.test(text) ||
     /\b(anotar|registrar|lancar|adicionar)\b.{0,20}\b(um[a]?\s+)?(gasto|despesa|compra|pagamento|lancamento)\b/i.test(text);
   if (wantsToRegister && !parseAmountToCents(text)) {
     return { type: 'register-transaction-missing-info' };
+  }
+
+  const explicitClause = explicitTransactionClause(text);
+  if (explicitClause) {
+    const clauseNormalized = normalizePtText(explicitClause);
+    const amountCents = parseAmountToCents(explicitClause);
+    const isClauseIncome = /\b(recebi|ganhei)\b/.test(clauseNormalized);
+    if (amountCents && amountCents > 0) {
+      return {
+        type: 'register-transaction',
+        kind: isClauseIncome ? 'income' : 'expense',
+        amountCents,
+        category: inferCategory(clauseNormalized),
+        description: text,
+        occurredAtIso: parseRelativeOccurredAt(text, now) ?? now.toISOString()
+      };
+    }
   }
 
   // Full expense list / extrato
@@ -1371,6 +1417,8 @@ export async function generateScopedSupportReply(params: {
     '41) NUNCA invente ou suponha valores financeiros (totais, saldos, limites). Use apenas valores que apareçam explicitamente no contexto de dados fornecidos. Se não tiver os dados, diga que vai verificar.',
     '42) Se perguntarem "quem criou a Iara" (ou variações), responda de forma profissional e humana: "A Iara foi idealizada pelo Felipe Grigoletti Guarde, dono do projeto, junto com a equipe de desenvolvimento." Você pode complementar com 1 frase sobre missão (educação financeira prática, organização e decisões melhores), sem exagero promocional.',
     '43) Ao comparar com concorrentes, sempre explique por que vale a pena pagar pela Iara no contexto do cliente: destaque ganho prático de tempo, consistência de acompanhamento, prevenção de erros e suporte conversacional contínuo no WhatsApp. Evite resposta genérica.',
+    '44) Se o usuário brincar, usar "kk", ironia leve ou falar de cansaço/humor junto de uma tarefa financeira, responda a brincadeira em 1 frase curta e depois execute/continue a tarefa. Não ignore o lado humano da mensagem.',
+    '45) Se a mensagem tiver uma pergunta casual e também uma declaração explícita de gasto/receita (ex: "o que recomenda? ontem gastei 45 reais em lanche"), trate a declaração financeira como dado válido quando estiver clara; não peça confirmação só porque existe uma pergunta casual antes.',
     ...modeInstructions,
     '',
     'Capacidades do bot:',

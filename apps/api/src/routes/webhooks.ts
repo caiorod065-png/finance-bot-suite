@@ -311,6 +311,22 @@ function reactionLine(params: {
   return `Anotadíssimo${name}. Bora manter o controle em dia 😉`;
 }
 
+function casualAsideForTransaction(text: string): string | null {
+  const normalized = normalizeHumanText(text);
+  const hasTransaction = /\b(gastei|paguei|comprei|recebi|ganhei)\b/.test(normalized);
+  if (!hasTransaction) return null;
+
+  if (/\b(cansad|sono|dormir|descansar)\b/.test(normalized)) {
+    return 'Sobre o cansaço: um descanso curto sem culpa parece uma boa ideia 😄';
+  }
+
+  if (/\b(kkk|kk|haha|rsrs|brincadeira)\b/.test(normalized)) {
+    return 'Peguei a brincadeira 😄';
+  }
+
+  return null;
+}
+
 function limitStatusLine(limit: {
   period: 'daily' | 'weekly' | 'monthly';
   limitCents: number;
@@ -2600,6 +2616,23 @@ function hasExplicitWriteSignal(text: string): boolean {
   return /\b(gastei|paguei|comprei|recebi|ganhei|anota|anotar|registra|registrar|coloca|colocar|adiciona|adicionar|adicione|lancar|lançar|corrige|corrigir|apaga|apagar|deleta|deletar|remove|remover|cria|criar|define|definir)\b/.test(normalized);
 }
 
+function hasClearTransactionStatementClause(text: string): boolean {
+  const clauses = text
+    .split(/[?;\n]+/)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+
+  for (const clause of clauses.reverse()) {
+    const normalized = normalizeHumanText(clause);
+    if (!/\b(gastei|paguei|comprei|recebi|ganhei)\b/.test(normalized)) continue;
+    if (!parseAmountToCentsLoose(clause)) continue;
+    if (hasQuestionSignalForSafety(clause)) continue;
+    return true;
+  }
+
+  return false;
+}
+
 function isSafeTransactionalExecution(intent: ParsedIntent, text: string): { safe: boolean; reason?: string } {
   if (
     intent.type !== 'register-transaction' &&
@@ -2619,8 +2652,11 @@ function isSafeTransactionalExecution(intent: ParsedIntent, text: string): { saf
   }
 
   const explicit = hasExplicitWriteSignal(text);
+  const clearTransactionClause = intent.type === 'register-transaction'
+    ? hasClearTransactionStatementClause(text)
+    : false;
 
-  if (!explicit || questionLike) {
+  if (!explicit || (questionLike && !clearTransactionClause)) {
     return {
       safe: false,
       reason: questionLike ? 'question-like-message' : 'missing-explicit-write-signal'
@@ -6398,6 +6434,7 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
       category: intent.category,
       customerName: customer.name
     });
+    const casualAside = casualAsideForTransaction(payload.text);
 
     let limitAlertLines: string[] = [];
     if (intent.kind === 'expense') {
@@ -6423,6 +6460,7 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
       : null;
 
     const outText = [
+      ...(casualAside ? [casualAside] : []),
       mainLine,
       vibeLine,
       ...limitAlertLines,

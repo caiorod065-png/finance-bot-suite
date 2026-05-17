@@ -26,6 +26,21 @@ test('Caso 2: lançamento explícito registra gasto', async () => {
   }
 });
 
+test('Lançamento explícito dentro de conversa casual com pergunta anterior registra gasto', async () => {
+  const intent = await parseIntent(
+    'Estou um pouco cansado, o que recomenda? Um sono kk? Iara aproveitando, ontem gastei 45 reais em lanche',
+    referenceDate,
+    { disableAi: true }
+  );
+
+  assert.equal(intent.type, 'register-transaction');
+  if (intent.type === 'register-transaction') {
+    assert.equal(intent.amountCents, 4500);
+    assert.equal(intent.category, 'alimentacao');
+    assert.match(intent.occurredAtIso, /^2026-03-23T/);
+  }
+});
+
 test('Categoria: comida deve entrar em alimentação (não em outros)', async () => {
   assert.equal(inferCategory('gastei 35 reais em comida'), 'alimentacao');
   assert.equal(inferCategory('hoje paguei almoço 42 reais'), 'alimentacao');
