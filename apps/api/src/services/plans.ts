@@ -143,3 +143,44 @@ export function planHasFeature(planCode: string | null | undefined, feature: Pla
   const plan = getPlanDefinition(planCode);
   return plan.features.includes(feature);
 }
+
+export const allPlanFeatures: PlanFeature[] = [
+  'goals',
+  'reminders',
+  'insights',
+  'recurring',
+  'cashflow',
+  'investment_simulator',
+  'gamification',
+  'health_score',
+  'family_mode',
+  'visual_monthly_report',
+  'open_banking_import'
+];
+
+export function featureLabel(feature: PlanFeature): string {
+  const labels: Record<PlanFeature, string> = {
+    goals: 'metas',
+    reminders: 'lembretes de contas',
+    insights: 'insights inteligentes',
+    recurring: 'detecção de recorrências',
+    cashflow: 'previsão de saldo',
+    investment_simulator: 'simulador de investimentos',
+    gamification: 'gamificação',
+    health_score: 'score financeiro',
+    family_mode: 'modo família',
+    visual_monthly_report: 'relatório visual mensal',
+    open_banking_import: 'importação por Open Banking'
+  };
+  return labels[feature];
+}
+
+export function minimumPlanForFeature(feature: PlanFeature): string {
+  if (feature === 'reminders') return 'Essencial';
+  if (feature === 'insights' || feature === 'recurring' || feature === 'cashflow' || feature === 'investment_simulator' || feature === 'visual_monthly_report') {
+    return 'Premium';
+  }
+  if (feature === 'family_mode') return 'Família';
+  if (feature === 'open_banking_import') return 'Elite';
+  return 'Gratuito';
+}

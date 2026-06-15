@@ -60,7 +60,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     const queryToken = (request.query as { token?: string } | undefined)?.token;
     const providedToken = incomingToken ?? queryToken;
 
-    if (config.asaasWebhookToken && providedToken !== config.asaasWebhookToken) {
+    if (!config.asaasWebhookToken || providedToken !== config.asaasWebhookToken) {
       return reply.status(401).send({ error: 'unauthorized' });
     }
 
@@ -185,8 +185,8 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
     };
     const planFeatures = plan.features.map((f) => featureLabels[f] ?? f);
 
-    let thanksDelivery: { sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' } | null = null;
-    let onboardingDelivery: { sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' } | null = null;
+    let thanksDelivery: { sent: boolean; provider?: 'meta' | 'meta-template' | 'twilio' | 'twilio-template' } | null = null;
+    let onboardingDelivery: { sent: boolean; provider?: 'meta' | 'meta-template' | 'twilio' | 'twilio-template' } | null = null;
     if (phone) {
       const sent = isFirstActivation
         ? await sendWelcomeActivationMessage({

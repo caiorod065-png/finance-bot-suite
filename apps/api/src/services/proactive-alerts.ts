@@ -1,6 +1,10 @@
 import { config } from '../config.js';
 import {
   adminMetrics,
+  batchAutoMessagesSentThisMonth,
+  batchAutoMessagesSentThisWeek,
+  batchAutoMessagesSentToday,
+  batchInboundMessagesSentToday,
   evaluateCustomerAccess,
   findLatestUnansweredOutbound,
   forecastCashflowMonth,
@@ -881,6 +885,25 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
   const customers = await listActiveCustomerContacts(customerLimit);
   result.customersScanned = customers.length;
 
+  // Pré-carrega todos os dados de "já enviado" em 4 queries ao invés de N*20 queries
+  const customerIds = customers.map((c) => c.id);
+  const [sentToday, inboundToday, sentThisWeek, sentThisMonth] = await Promise.all([
+    batchAutoMessagesSentToday({ customerIds, referenceDate, timezone }),
+    batchInboundMessagesSentToday({ customerIds, referenceDate, timezone }),
+    batchAutoMessagesSentThisWeek({ customerIds, referenceDate, timezone }),
+    batchAutoMessagesSentThisMonth({ customerIds, referenceDate, timezone }),
+  ]);
+
+  // Helpers síncronos que substituem as queries individuais
+  const wasSentToday = (customerId: string, source: string): boolean =>
+    sentToday.has(`${customerId}:${source}`);
+  const hadInboundToday = (customerId: string): boolean =>
+    inboundToday.has(customerId);
+  const wasSentThisWeek = (customerId: string, source: string): boolean =>
+    sentThisWeek.has(`${customerId}:${source}`);
+  const wasSentThisMonth = (customerId: string, source: string): boolean =>
+    sentThisMonth.has(`${customerId}:${source}`);
+
   for (const customer of customers) {
     const name = friendlyName(customer.name);
 
@@ -900,12 +923,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       // ── Bom dia às 6h (enviado para todos, independente de atividade) ───
       if (isBomDiaWindow && proactiveProfile.sendDailyInactivity) {
         const bomDiaSource = 'auto-bom-dia';
-        const bomDiaJaSent = await hasAutoMessageToday({
-          customerId: customer.id,
-          source: bomDiaSource,
-          referenceDate,
-          timezone
-        });
+        const bomDiaJaSent = wasSentToday(customer.id, bomDiaSource);
         if (!bomDiaJaSent) {
           const text = bomDiaMessage(name);
           let sentOk = false;
@@ -926,12 +944,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       // ── Boa noite às 21h ─────────────────────────────────────────────────
       if (isBoaNoiteWindow && proactiveProfile.sendDailyInactivity) {
         const boaNoiteSource = 'auto-boa-noite';
-        const boaNoiteJaSent = await hasAutoMessageToday({
-          customerId: customer.id,
-          source: boaNoiteSource,
-          referenceDate,
-          timezone
-        });
+        const boaNoiteJaSent = wasSentToday(customer.id, boaNoiteSource);
         if (!boaNoiteJaSent) {
           const text = boaNoiteMessage(name);
           let sentOk = false;
@@ -958,18 +971,9 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
 
       if (alertsSentThisCycle < MAX_ALERTS_PER_CYCLE && proactiveProfile.sendDailyInactivity) {
         const source = 'auto-inactivity-daily';
-        const alreadySentToday = await hasAutoMessageToday({
-          customerId: customer.id,
-          source,
-          referenceDate,
-          timezone
-        });
+        const alreadySentToday = wasSentToday(customer.id, source);
         if (!alreadySentToday) {
-          const hasInboundToday = await hasInboundMessageToday({
-            customerId: customer.id,
-            referenceDate,
-            timezone
-          });
+          const hasInboundToday = hadInboundToday(customer.id);
           if (!hasInboundToday) {
             result.inactivityAlertsTriggered += 1;
             const text = inactivityMessage({
@@ -1005,12 +1009,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
 
       if (alertsSentThisCycle < MAX_ALERTS_PER_CYCLE && proactiveProfile.sendFollowUpCheckIn) {
         const source = 'auto-followup-checkin';
-        const alreadySentToday = await hasAutoMessageToday({
-          customerId: customer.id,
-          source,
-          referenceDate,
-          timezone
-        });
+        const alreadySentToday = wasSentToday(customer.id, source);
 
         if (!alreadySentToday) {
           const unansweredOutbound = await findLatestUnansweredOutbound({
@@ -1066,12 +1065,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
 
       if (alertsSentThisCycle < MAX_ALERTS_PER_CYCLE && proactiveProfile.sendDailyRisk) {
         const source = 'auto-risk-forecast';
-        const alreadySentToday = await hasAutoMessageToday({
-          customerId: customer.id,
-          source,
-          referenceDate,
-          timezone
-        });
+        const alreadySentToday = wasSentToday(customer.id, source);
         if (!alreadySentToday) {
           const forecast = await forecastCashflowMonth(customer.id, referenceDate, timezone);
           if (forecast.projectedNetAfterBillsCents < 0) {
@@ -1196,12 +1190,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
         const daysLeft = diffDaysIso(todayIso, access.dueDate);
         if (daysLeft === 3 || daysLeft === 0) {
           const renewalSource = daysLeft === 3 ? 'auto-renewal-reminder-3d' : 'auto-renewal-reminder-0d';
-          const alreadySentToday = await hasAutoMessageToday({
-            customerId: customer.id,
-            source: renewalSource,
-            referenceDate,
-            timezone
-          });
+          const alreadySentToday = wasSentToday(customer.id, renewalSource);
 
           if (!alreadySentToday) {
             result.renewalRemindersTriggered += 1;
@@ -1252,13 +1241,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
         if (!alertKind) continue;
 
         const source = `auto-limit-${status.period}-${alertKind}`;
-        const alreadySentToday = await hasAutoMessageToday({
-          customerId: customer.id,
-          source,
-          referenceDate,
-          timezone
-        });
-        if (alreadySentToday) continue;
+        if (wasSentToday(customer.id, source)) continue;
 
         result.limitAlertsTriggered += 1;
         const text = limitAlertMessage({
@@ -1302,18 +1285,8 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
 
       if (alertsSentThisCycle < MAX_ALERTS_PER_CYCLE && proactiveProfile.sendDailyProgress) {
         const source = 'auto-progress-daily';
-        const alreadySentToday = await hasAutoMessageToday({
-          customerId: customer.id,
-          source,
-          referenceDate,
-          timezone
-        });
-        if (!alreadySentToday) {
-          const hasInboundToday = await hasInboundMessageToday({
-            customerId: customer.id,
-            referenceDate,
-            timezone
-          });
+        if (!wasSentToday(customer.id, source)) {
+          const hasInboundToday = hadInboundToday(customer.id);
           if (hasInboundToday) {
             const [streak, insights] = await Promise.all([
               getCustomerStreak(customer.id, referenceDate, timezone),
@@ -1363,12 +1336,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       // ── Resumo semanal + score consolidados em UMA mensagem (segunda-feira) ──
       if (runWeekly && proactiveProfile.sendWeeklySummary) {
         const weeklySource = 'auto-weekly-summary';
-        const alreadySentWeek = await hasAutoMessageThisWeek({
-          customerId: customer.id,
-          source: weeklySource,
-          referenceDate,
-          timezone
-        });
+        const alreadySentWeek = wasSentThisWeek(customer.id, weeklySource);
         if (!alreadySentWeek) {
           const prevWeekDate = new Date(referenceDate);
           prevWeekDate.setDate(referenceDate.getDate() - 7);
@@ -1384,12 +1352,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
             let scoreBlock = '';
             let scoreNeedsSending = false;
             if (proactiveProfile.sendWeeklyScoreEvolution && planHasFeature(access.planCode, 'health_score')) {
-              const scoreAlreadySent = await hasAutoMessageThisWeek({
-                customerId: customer.id,
-                source: scoreSource,
-                referenceDate,
-                timezone
-              });
+              const scoreAlreadySent = wasSentThisWeek(customer.id, scoreSource);
               if (!scoreAlreadySent) {
                 const evolution = await weeklyFinancialHealthSeries({
                   customerId: customer.id,
@@ -1464,12 +1427,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
         const prevMonth = prevMonthDate.getMonth() + 1;
         const prevYear = prevMonthDate.getFullYear();
         const monthSource = `auto-monthly-visual-${prevYear}-${String(prevMonth).padStart(2, '0')}`;
-        const monthAlreadySent = await hasAutoMessageThisMonth({
-          customerId: customer.id,
-          source: monthSource,
-          referenceDate,
-          timezone
-        });
+        const monthAlreadySent = wasSentThisMonth(customer.id, monthSource);
         if (!monthAlreadySent) {
           const visual = await monthlyVisualReportData({
             customerId: customer.id,
@@ -1521,12 +1479,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       }
       if (runWeekly) {
         const goalSource = 'auto-savings-goal-alert';
-        const goalAlreadySent = await hasAutoMessageThisWeek({
-          customerId: customer.id,
-          source: goalSource,
-          referenceDate,
-          timezone
-        });
+        const goalAlreadySent = wasSentThisWeek(customer.id, goalSource);
         if (!goalAlreadySent) {
           const goals = await getActiveSavingsGoals(customer.id);
           for (const goal of goals) {
@@ -1586,23 +1539,13 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
         const challengeSource = 'auto-weekly-challenge';
         const prevChallengeSource = 'auto-weekly-challenge-prev-check';
 
-        const challengeAlreadySent = await hasAutoMessageThisWeek({
-          customerId: customer.id,
-          source: challengeSource,
-          referenceDate,
-          timezone
-        });
+        const challengeAlreadySent = wasSentThisWeek(customer.id, challengeSource);
 
         if (!challengeAlreadySent) {
           // Verifica resultado do desafio da semana passada
           const prevWeekDate = new Date(referenceDate);
           prevWeekDate.setDate(referenceDate.getDate() - 7);
-          const prevCheckAlreadySent = await hasAutoMessageThisWeek({
-            customerId: customer.id,
-            source: prevChallengeSource,
-            referenceDate,
-            timezone
-          });
+          const prevCheckAlreadySent = wasSentThisWeek(customer.id, prevChallengeSource);
 
           if (!prevCheckAlreadySent) {
             const prevChallengeLog = await pool.query<{ metadata: Record<string, unknown> }>(
@@ -1677,9 +1620,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       // ── Alerta de risco financeiro familiar (semanal) ──────────────────────
       if (runWeekly && access.planCode === 'family') {
         const familyRiskSource = 'auto-family-risk-alert';
-        const familyRiskSent = await hasAutoMessageThisWeek({
-          customerId: customer.id, source: familyRiskSource, referenceDate, timezone
-        });
+        const familyRiskSent = wasSentThisWeek(customer.id, familyRiskSource);
         if (!familyRiskSent) {
           try {
             const riskSnap = await getFamilyRiskSnapshot({ customerId: customer.id, referenceDate, timezone });
@@ -1713,9 +1654,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
         const prevMonthDate = new Date(referenceDate);
         prevMonthDate.setMonth(referenceDate.getMonth() - 1);
         const meetingSource = `auto-family-meeting-${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
-        const meetingSent = await hasAutoMessageThisMonth({
-          customerId: customer.id, source: meetingSource, referenceDate, timezone
-        });
+        const meetingSent = wasSentThisMonth(customer.id, meetingSource);
         if (!meetingSent) {
           try {
             const summary = await familyMonthlySummary(customer.id, prevMonthDate, timezone);
@@ -1762,9 +1701,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       // ── Dica semanal personalizada (quarta-feira, planos premium+) ─────────
       if (runWednesday && (access.planCode === 'premium' || access.planCode === 'family' || access.planCode === 'elite')) {
         const tipSource = 'auto-tip-weekly';
-        const tipAlreadySent = await hasAutoMessageThisWeek({
-          customerId: customer.id, source: tipSource, referenceDate, timezone
-        });
+        const tipAlreadySent = wasSentThisWeek(customer.id, tipSource);
         if (!tipAlreadySent) {
           try {
             const insights = await spendingInsights(customer.id, referenceDate, timezone);
@@ -1816,13 +1753,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
       } catch { /* ignora falha de MRR */ }
 
       for (const owner of ownerContacts) {
-        const alreadySent = await hasAutoMessageToday({
-          customerId: owner.id,
-          source,
-          referenceDate,
-          timezone
-        });
-        if (alreadySent) continue;
+        if (wasSentToday(owner.id, source)) continue;
 
         const text = ownerDailyReportMessage({
           ownerName: friendlyName(owner.name),

@@ -112,9 +112,8 @@ CREATE TABLE IF NOT EXISTS spending_limits (
 CREATE INDEX IF NOT EXISTS idx_spending_limits_customer_active
   ON spending_limits (customer_id, is_active, period);
 
-INSERT INTO admin_users (email, password_hash, role)
-VALUES ('owner@finance-bot.local', 'dev-only-change-me', 'owner')
-ON CONFLICT (email) DO NOTHING;
+-- Admin user is created at runtime via ADMIN_EMAIL + ADMIN_PASSWORD env vars (see apps/api/src/services/admin-auth.ts ensureAdminBootstrapUser).
+-- Do NOT insert credentials here.
 
 INSERT INTO subscriptions (customer_id, status, has_paid_setup)
 SELECT id, 'pending_setup_payment', FALSE

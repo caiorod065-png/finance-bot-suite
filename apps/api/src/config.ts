@@ -11,10 +11,15 @@ dotenv.config({ path: path.join(repoRootDir, '.env') });
 dotenv.config({ path: path.join(apiRootDir, '.env') });
 dotenv.config();
 
+const INSECURE_DEFAULTS = new Set(['change-me', 'dev-only-change-this-jwt-secret', 'dev-only-change-me']);
+
 function required(key: string, fallback?: string): string {
   const value = process.env[key] ?? fallback;
   if (!value) {
     throw new Error(`Missing environment variable: ${key}`);
+  }
+  if (INSECURE_DEFAULTS.has(value.trim())) {
+    throw new Error(`Environment variable ${key} is set to an insecure default value. Set a secure value before starting.`);
   }
   return value;
 }
@@ -49,17 +54,17 @@ function parsePhoneList(raw: string | undefined): string[] {
 
 export const config = {
   port: Number(process.env.PORT ?? 8080),
-  databaseUrl: required('DATABASE_URL', 'postgres://finance_user:finance_pass@localhost:5432/finance_bot'),
+  databaseUrl: required('DATABASE_URL'),
   openAiApiKey: process.env.OPENAI_API_KEY ?? '',
   openAiAdminKey: normalizedEnv('OPENAI_ADMIN_KEY', ''),
   openAiOrganizationId: normalizedEnv('OPENAI_ORG_ID', ''),
   openAiModel: normalizedEnv('OPENAI_MODEL', 'gpt-4.1-mini'),
   openAiAgentModel: normalizedEnv('OPENAI_AGENT_MODEL', normalizedEnv('OPENAI_MODEL', 'gpt-4.1-mini')),
   openAiAgentTemperature: Number(process.env.OPENAI_AGENT_TEMPERATURE ?? 0.82),
-  adminToken: required('ADMIN_TOKEN', 'change-me'),
+  adminToken: required('ADMIN_TOKEN'),
   adminEmail: normalizedEnv('ADMIN_EMAIL', 'owner@finance-bot.local').toLowerCase(),
   adminPassword: normalizedEnv('ADMIN_PASSWORD', ''),
-  adminJwtSecret: required('ADMIN_JWT_SECRET', 'dev-only-change-this-jwt-secret'),
+  adminJwtSecret: required('ADMIN_JWT_SECRET'),
   adminJwtExpiresMinutes: Number(process.env.ADMIN_JWT_EXPIRES_MINUTES ?? 720),
   defaultTimezone: process.env.DEFAULT_TIMEZONE ?? 'America/Sao_Paulo',
   asaasApiKey: normalizedEnv('ASAAS_API_KEY', ''),
@@ -68,11 +73,13 @@ export const config = {
   whatsappToken: normalizedEnv('WHATSAPP_TOKEN', ''),
   whatsappPhoneNumberId: normalizedEnv('WHATSAPP_PHONE_NUMBER_ID', ''),
   whatsappVerifyToken: normalizedEnv('WHATSAPP_VERIFY_TOKEN', ''),
+  whatsappAppSecret: normalizedEnv('WHATSAPP_APP_SECRET', ''),
   twilioAccountSid: normalizedEnv('TWILIO_ACCOUNT_SID', ''),
   twilioAuthToken: normalizedEnv('TWILIO_AUTH_TOKEN', ''),
   twilioWhatsappFrom: normalizedEnv('TWILIO_WHATSAPP_FROM', ''),
   twilioWhatsappTemplateSid: normalizedEnv('TWILIO_WHATSAPP_TEMPLATE_SID', ''),
   twilioTemplateOutside24hEnabled: toBool(process.env.TWILIO_TEMPLATE_OUTSIDE_24H_ENABLED, true),
+  metaWhatsappTemplateName: normalizedEnv('META_WHATSAPP_TEMPLATE_NAME', ''),
   ownerWhatsappNumbers: parsePhoneList(process.env.OWNER_WHATSAPP_NUMBERS),
   ownerDailyReportEnabled: toBool(process.env.OWNER_DAILY_REPORT_ENABLED, true),
   ownerDailyReportHour: Math.max(0, Math.min(23, Number(process.env.OWNER_DAILY_REPORT_HOUR ?? 8))),
@@ -90,4 +97,8 @@ export const config = {
   pluggyClientId: normalizedEnv('PLUGGY_CLIENT_ID', ''),
   pluggyClientSecret: normalizedEnv('PLUGGY_CLIENT_SECRET', ''),
   pluggyWebhookSecret: normalizedEnv('PLUGGY_WEBHOOK_SECRET', ''),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
 };

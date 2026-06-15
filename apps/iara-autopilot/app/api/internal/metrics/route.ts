@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { assertInternalApiKey } from "@/lib/auth";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  try {
+    assertInternalApiKey(request);
+  } catch {
+    return NextResponse.json({ ok: false, message: "unauthorized" }, { status: 401 });
+  }
+
   try {
     const [messages, issues, prompts, runs] = await Promise.all([
       supabase.from("conversation_messages").select("id", { count: "exact", head: true }),

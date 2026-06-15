@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
@@ -17,37 +19,25 @@ import { sendWelcomeActivationMessage } from '../services/whatsapp-outbound.js';
 import type { ParsedIntent } from '../types.js';
 import {
   activateFamilyMember,
-  createFamilyGroup,
-  clearFamilySpendingLimit,
   customerDailyFinancialSnapshot,
   createBillReminder,
   createFinancialGoal,
   clearSpendingLimit,
   correctLastTransactionAmount,
   dailyExpenseSummary,
-  detectRecurringExpenses,
   deleteLastTransaction,
   evaluateCustomerAccess,
   evaluateAndUnlockAchievements,
-  familyMonthlySummary,
-  familySpendingLimitStatuses,
   financialGoalsProgress,
-  financialHealthScore,
   forecastCashflowMonth,
-  getCustomerStreak,
   findCustomerByWhatsappLoose,
-  getFamilyContextForCustomer,
   getLastOutboundMessage,
   listActiveCustomerContacts,
   joinFamilyGroupByCode,
-  leaveFamilyGroup,
-  listCustomerAchievements,
-  listFamilySpendingLimits,
   listActiveFinancialGoals,
   listBillReminders,
   listSpendingLimits,
   logConversation,
-  monthlyVisualReportData,
   monthlySummary,
   recordSubscriptionPayment,
   recentConversationMessages,
@@ -62,27 +52,16 @@ import {
   updateBillReminderLeadById,
   updateLatestBillReminderLead,
   upsertSpendingLimit,
-  upsertFamilySpendingLimit,
-  weeklyFinancialHealthSeries,
   updateLastTransactionContext,
   isOwnerWhatsappNumber,
   upsertCustomerByWhatsapp,
-  getTransactionList,
-  getCustomerFinancialCapacity,
-  createSavingsGoal,
-  getActiveSavingsGoals,
-  cancelActiveSavingsGoals,
-  getSavingsGoalMonthlyProgress,
-  createFamilyVault,
-  getActiveFamilyVaults,
-  cancelActiveFamilyVaults,
-  getFamilyVaultProgress,
   getSpendingByCategory,
   detectImpulsivePattern,
   getCustomerProfileFacts,
   logIaraDoubt
 } from '../services/ledger.js';
 import { config } from '../config.js';
+import { pool } from '../db/pool.js';
 import { createAsaasCharge } from '../services/billing-asaas.js';
 import {
   costOverview,
@@ -90,7 +69,7 @@ import {
   type CostsOverview,
   type PreviousMonthCostsSnapshot
 } from '../services/costs.js';
-import { getPlanDefinition, listPlanDefinitions, planHasFeature, type PlanCode, type PlanFeature } from '../services/plans.js';
+import { getPlanDefinition, listPlanDefinitions, planHasFeature, allPlanFeatures, featureLabel, minimumPlanForFeature, type PlanCode, type PlanFeature } from '../services/plans.js';
 import {
   ensureJardesSchema,
   getActiveKnowledgeEntries,
@@ -102,6 +81,50 @@ import {
   processOwnerJardesResponse,
   runJardesInterceptor
 } from '../services/jardes-analysis.js';
+import { handleOpenFinanceIntents } from './webhooks/openfinance.js';
+import { handleAnalyticsIntents, type AnalyticsIntentType, type InvestmentSimulation } from './webhooks/analytics.js';
+import { handleFamilyIntents, type FamilyIntentData } from './webhooks/family.js';
+import { handleQueryIntents } from './webhooks/query-intents.js';
+import { handlePdfReport, isPdfReportRequest } from './webhooks/pdf-report.js';
+
+// ─────────────────────────────────────────────
+// Webhook idempotency
+// ─────────────────────────────────────────────
+
+let _webhookIdempotencyReady: Promise<void> | null = null;
+
+async function ensureWebhookIdempotencySchema(): Promise<void> {
+  if (!_webhookIdempotencyReady) {
+    _webhookIdempotencyReady = pool.query(`
+      CREATE TABLE IF NOT EXISTS processed_webhook_messages (
+        message_id   TEXT        NOT NULL,
+        processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT processed_webhook_messages_pkey PRIMARY KEY (message_id)
+      )
+    `).then(() => undefined).catch((err) => {
+      _webhookIdempotencyReady = null;
+      throw err;
+    });
+  }
+  await _webhookIdempotencyReady;
+}
+
+// Returns true if this messageId was NOT seen before (safe to process).
+// Returns false if already processed (duplicate — skip).
+async function claimWebhookMessage(messageId: string): Promise<boolean> {
+  await ensureWebhookIdempotencySchema();
+  const result = await pool.query(
+    `INSERT INTO processed_webhook_messages (message_id)
+     VALUES ($1)
+     ON CONFLICT (message_id) DO NOTHING`,
+    [messageId]
+  );
+  // Periodically clean up entries older than 48 h (fire-and-forget)
+  pool.query(
+    `DELETE FROM processed_webhook_messages WHERE processed_at < NOW() - INTERVAL '48 hours'`
+  ).catch(() => undefined);
+  return (result.rowCount ?? 0) > 0;
+}
 
 // ─────────────────────────────────────────────
 // Template override helper
@@ -121,7 +144,8 @@ const inboundSchema = z.object({
   from: z.string().min(8),
   text: z.string().min(1),
   timestamp: z.string().optional(),
-  name: z.string().optional()
+  name: z.string().optional(),
+  messageId: z.string().optional()
 });
 
 type InboundPayload = {
@@ -129,6 +153,7 @@ type InboundPayload = {
   text: string;
   timestamp?: string;
   name?: string;
+  messageId?: string;
 };
 
 type MetaStatusPayload = {
@@ -178,7 +203,8 @@ function extractMetaWebhookPayload(rawBody: unknown): InboundPayload | null {
     from,
     text,
     timestamp: timestampIso,
-    name: value?.contacts?.[0]?.profile?.name
+    name: value?.contacts?.[0]?.profile?.name,
+    messageId: (message as { id?: string }).id
   };
 }
 
@@ -468,7 +494,11 @@ async function buildDecisionLines(params: {
 
   const forecast = await forecastCashflowMonth(params.customerId, params.now, config.defaultTimezone);
   const daysLeft = Math.max(forecast.daysInMonth - forecast.dayOfMonth, 0);
-  if (forecast.projectedNetAfterBillsCents < 0) {
+  // Só mostra alerta de déficit se há renda real registrada no mês
+  // Sem receita, a projeção é sempre negativa (0 - gastos) e gera alarme falso em todo gasto
+  const shouldShowDeficitAlert = forecast.incomeMtdCents > 0;
+
+  if (forecast.projectedNetAfterBillsCents < 0 && shouldShowDeficitAlert) {
     const deficit = Math.abs(forecast.projectedNetAfterBillsCents);
     const cutPerDay = daysLeft > 0 ? Math.ceil(deficit / daysLeft) : deficit;
     const moneyOutDay = Math.max(daysLeft - Math.ceil(deficit / Math.max(Math.ceil(forecast.projectedExpenseCents / Math.max(forecast.daysInMonth, 1)), 1)), 0);
@@ -492,7 +522,7 @@ async function buildDecisionLines(params: {
         : `🛠️ Ajuste sugerido: reduza cerca de ${centsToBrl(cutPerDay)} por dia até o fechamento do mês.`;
       lines.push(actionLine);
     }
-  } else if (forecast.projectedNetAfterBillsCents > 0) {
+  } else if (forecast.projectedNetAfterBillsCents > 0 && shouldShowDeficitAlert) {
     lines.push(`🔮 Previsão de saldo: no ritmo atual, você fecha o mês com ${centsToBrl(forecast.projectedNetAfterBillsCents)} após contas previstas.`);
     if (forecast.projectedNetAfterBillsCents > 0 && lines.length < maxLines && tone !== 'soft') {
       const reserveSuggestion = Math.max(Math.floor(forecast.projectedNetAfterBillsCents * 0.2), 0);
@@ -500,7 +530,7 @@ async function buildDecisionLines(params: {
         lines.push(`🛠️ Sugestão automática: se reservar ${centsToBrl(reserveSuggestion)} desse saldo, você fortalece sua margem do próximo mês.`);
       }
     }
-  } else {
+  } else if (shouldShowDeficitAlert) {
     lines.push('🔮 Previsão de saldo: tendência de fechar o mês no zero a zero. Qualquer gasto fora do padrão pode te puxar para o vermelho.');
   }
 
@@ -748,6 +778,27 @@ function parseDateFlexible(text: string, referenceDate = new Date()): string | n
     }
   }
 
+  // Nomes de meses por extenso: "até dezembro", "para março", "em junho de 2027"
+  const monthNames: Record<string, number> = {
+    janeiro: 1, fevereiro: 2, marco: 3, março: 3, abril: 4, maio: 5, junho: 6,
+    julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
+    jan: 1, fev: 2, mar: 3, abr: 4, jun: 6, jul: 7, ago: 8, set: 9, out: 10, nov: 11, dez: 12
+  };
+  const monthMatch = normalized.match(/\b(janeiro|fevereiro|marco|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|fev|mar|abr|jun|jul|ago|set|out|nov|dez)\b(?:\s+(?:de\s+)?(\d{4}))?/);
+  if (monthMatch) {
+    const monthNum = monthNames[monthMatch[1]];
+    const year = monthMatch[2] ? Number(monthMatch[2]) : (() => {
+      const y = referenceDate.getFullYear();
+      // Se o mês já passou neste ano, usa o próximo
+      return (monthNum < referenceDate.getMonth() + 1) ? y + 1 : y;
+    })();
+    if (monthNum && !Number.isNaN(year)) {
+      // Último dia do mês
+      const lastDay = new Date(Date.UTC(year, monthNum, 0, 12, 0, 0));
+      return lastDay.toISOString().slice(0, 10);
+    }
+  }
+
   return null;
 }
 
@@ -816,16 +867,22 @@ function parseTimeFlexible(text: string): string | null {
   return null;
 }
 
+function hasGoalCreationSignal(normalized: string, original: string): boolean {
+  if (original.includes('?')) return false;
+  if (/\b(como|por que|por quê|funciona|isso mesmo)\b/.test(normalized)) return false;
+  if (/\bmeta\b/.test(normalized)) {
+    return /\b(cria|criar|define|definir|quero|quero criar|estabelecer|meta)\b/.test(normalized);
+  }
+  return /\b(quero\s+(?:guardar|economizar|poupar|juntar|separar)|vou\s+(?:guardar|economizar|poupar|juntar)|preciso\s+(?:guardar|economizar|juntar)|quero\s+(?:uma?\s+)?reserva|quero\s+(?:um?\s+)?fundo)\b/.test(normalized);
+}
+
 function parseGoalCommand(text: string, referenceDate = new Date()): {
   title: string;
   targetCents: number;
   deadlineDate: string;
 } | null {
   const normalized = normalizeHumanText(text);
-  if (!/\bmeta\b/.test(normalized)) return null;
-  const explicitCreate = /\b(cria|criar|define|definir|quero|quero criar|estabelecer|meta)\b/.test(normalized);
-  const questionLike = text.includes('?') || /\b(como|por que|por quê|funciona|isso mesmo)\b/.test(normalized);
-  if (!explicitCreate || questionLike) return null;
+  if (!hasGoalCreationSignal(normalized, text)) return null;
 
   const targetCents = parseMoneyCentsNatural(text);
   const deadlineDate = parseDateFlexible(text, referenceDate);
@@ -869,10 +926,7 @@ function parseGoalDraft(text: string, referenceDate = new Date()): {
   deadlineDate: string | null;
 } | null {
   const normalized = normalizeHumanText(text);
-  if (!/\bmeta\b/.test(normalized)) return null;
-  const explicitCreate = /\b(cria|criar|define|definir|quero|quero criar|estabelecer|meta)\b/.test(normalized);
-  const questionLike = text.includes('?') || /\b(como|por que|por quê|funciona|isso mesmo)\b/.test(normalized);
-  if (!explicitCreate || questionLike) return null;
+  if (!hasGoalCreationSignal(normalized, text)) return null;
 
   return {
     title: extractGoalTitleFromText(text, normalized),
@@ -910,12 +964,12 @@ function parseReminderCreateCommand(text: string, referenceDate = new Date()): {
   const dueTime = parseTimeFlexible(text);
   const dayOnly = normalized.match(/\bdia\s+(\d{1,2})\b/);
   let dueDate = parseDateFlexible(text, referenceDate);
-  if (!dueDate && recurrence === 'monthly' && dayOnly) {
+  if (!dueDate && dayOnly) {
     const day = Number(dayOnly[1]);
     if (day >= 1 && day <= 31) {
       const base = new Date(referenceDate);
       base.setDate(day);
-      if (base < referenceDate) {
+      if (base <= referenceDate) {
         base.setMonth(base.getMonth() + 1);
       }
       dueDate = base.toISOString().slice(0, 10);
@@ -1297,6 +1351,36 @@ function parseInvestmentSimulatorCommand(text: string): {
     months,
     monthlyRatePct: Number.isNaN(monthlyRatePct) ? 0.8 : monthlyRatePct
   };
+}
+
+function detectAnalyticsIntent(text: string): { intent: AnalyticsIntentType; investmentSimulation?: InvestmentSimulation } | null {
+  if (isInsightsRequest(text)) return { intent: 'insights' };
+  if (isRecurringRequest(text)) return { intent: 'recurring' };
+  if (isCashflowForecastRequest(text)) return { intent: 'cashflow' };
+  const sim = parseInvestmentSimulatorCommand(text);
+  if (sim) return { intent: 'investment_simulator', investmentSimulation: sim };
+  if (isScoreRequest(text)) return { intent: 'health_score' };
+  if (isWeeklyScoreEvolutionRequest(text)) return { intent: 'weekly_score' };
+  if (isVisualMonthlyReportRequest(text)) return { intent: 'visual_report' };
+  if (isStreakRequest(text)) return { intent: 'streak' };
+  if (isAchievementsRequest(text)) return { intent: 'achievements' };
+  return null;
+}
+
+function detectFamilyIntent(text: string): FamilyIntentData | null {
+  const fc = parseFamilyCreate(text);
+  if (fc) return { intent: 'create', name: fc.name };
+  const fj = parseFamilyJoinCode(text);
+  if (fj) return { intent: 'join', code: fj.code };
+  const fsl = parseFamilySetLimit(text);
+  if (fsl) return { intent: 'set_limit', period: fsl.period, amountCents: fsl.amountCents };
+  const fcl = parseFamilyClearLimit(text);
+  if (fcl) return { intent: 'clear_limit', period: fcl.period };
+  if (isFamilyListLimitsRequest(text)) return { intent: 'list_limits' };
+  if (isFamilySummaryRequest(text)) return { intent: 'summary' };
+  if (isFamilyInfoRequest(text)) return { intent: 'info' };
+  if (isFamilyLeaveRequest(text)) return { intent: 'leave' };
+  return null;
 }
 
 function blockMessage(access: {
@@ -1821,47 +1905,6 @@ function enrichBlockMessageWithCharge(baseMessage: string, attempt: AutoChargeAt
   }
 
   return lines.join('\n');
-}
-
-function minimumPlanForFeature(feature: PlanFeature): string {
-  if (feature === 'reminders') return 'Essencial';
-  if (feature === 'insights' || feature === 'recurring' || feature === 'cashflow' || feature === 'investment_simulator' || feature === 'visual_monthly_report') {
-    return 'Premium';
-  }
-  if (feature === 'family_mode') return 'Família';
-  if (feature === 'open_banking_import') return 'Elite';
-  return 'Gratuito';
-}
-
-const allPlanFeatures: PlanFeature[] = [
-  'goals',
-  'reminders',
-  'insights',
-  'recurring',
-  'cashflow',
-  'investment_simulator',
-  'gamification',
-  'health_score',
-  'family_mode',
-  'visual_monthly_report',
-  'open_banking_import'
-];
-
-function featureLabel(feature: PlanFeature): string {
-  const labels: Record<PlanFeature, string> = {
-    goals: 'metas',
-    reminders: 'lembretes de contas',
-    insights: 'insights inteligentes',
-    recurring: 'detecção de recorrências',
-    cashflow: 'previsão de saldo',
-    investment_simulator: 'simulador de investimentos',
-    gamification: 'gamificação',
-    health_score: 'score financeiro',
-    family_mode: 'modo família',
-    visual_monthly_report: 'relatório visual mensal',
-    open_banking_import: 'importação por Open Banking'
-  };
-  return labels[feature];
 }
 
 function aiPlanFeatureContext(planCode: PlanCode): {
@@ -2401,46 +2444,29 @@ function helpVariant(text: string, ownerMode = false): string {
 
   const base = [
     [
-      'Não entendi direitinho essa mensagem 😅',
-      'Me diz o que você quer fazer:',
-      '• lançar gasto/receita',
-      '• ver gastos de hoje',
-      '• ver resumo do mês',
-      '• definir ou ver limites',
-      '• ver score financeiro / streak / conquistas',
-      '• usar modo família',
-      '• relatório visual mensal',
-      '• criar meta financeira',
-      '• cadastrar lembrete de vencimento',
-      '• ver insights / previsão de saldo',
-      '• apagar último gasto ou corrigir valor',
-      'Posso começar por qual opção?'
+      'Não captei bem essa mensagem 😅',
+      'Me conta o que você quer resolver:',
+      '• anotar um gasto ou receita',
+      '• ver resumo do mês ou gastos de hoje',
+      '• criar meta ou lembrete de conta',
+      '• definir limite de gastos',
+      '• ver seu score financeiro',
+      'Manda numa dessas e eu já te respondo.'
     ],
     [
-      'Quero te ajudar, só preciso de um pouco mais de contexto 🙂',
-      'Você quer:',
-      '• registrar um gasto/receita',
-      '• consultar resumo',
-      '• corrigir/apagar lançamento',
-      '• ajustar limites?',
-      '• ver score / streak?',
-      '• ativar família?',
-      '• criar meta ou lembrete?',
-      'Me responde com uma dessas opções.'
-    ],
-    [
-      'Ainda não ficou claro pra mim 🤔',
-      'Me manda em um desses formatos:',
-      '• "hoje gastei 30 no mercado"',
+      'Hmm, não entendi bem. Pode reformular?',
+      'Exemplos que funcionam bem:',
+      '• "hoje gastei 45 no mercado"',
       '• "resumo do mês"',
-      '• "gastos de hoje"',
-      '• "limite semanal 800"',
-      '• "meu score" / "meu streak"',
-      '• "criar família"',
-      '• "relatório mensal visual"',
-      '• "meta 5000 para viagem até 31/12/2026"',
-      '• "lembrete aluguel vence 10/04"',
+      '• "quero guardar 1000 para viagem até dezembro"',
+      '• "me lembra dia 15 pagar o cartão"',
+      '• "meu score"',
       'Qual você quer agora?'
+    ],
+    [
+      'Deixa eu te ajudar — só precisei de mais contexto 🙂',
+      'Você quer registrar um gasto, ver seus números, criar uma meta ou ajustar algum limite?',
+      'Manda em uma frase e eu já resolvo.'
     ]
   ].map((parts) => parts.join('\n'));
 
@@ -2842,27 +2868,6 @@ function isWeeklyScoreEvolutionRequest(text: string): boolean {
 function isVisualMonthlyReportRequest(text: string): boolean {
   const normalized = normalizeHumanText(text);
   return /\b(relatorio|relatório|wrapped|resumo visual)\b/.test(normalized) && /\b(mensal|mes|mês)\b/.test(normalized);
-}
-
-function isConnectBankRequest(text: string): boolean {
-  const normalized = normalizeHumanText(text);
-  return (
-    /\b(conectar?|ligar|vincular|integrar)\b/.test(normalized) &&
-    /\b(banco|conta|open.?finance|pluggy)\b/.test(normalized)
-  ) || /\b(conectar? meu banco|linkar? banco|abrir? open.?finance)\b/.test(normalized);
-}
-
-function isDisconnectBankRequest(text: string): boolean {
-  const normalized = normalizeHumanText(text);
-  return (
-    /\b(desconectar?|desvincular|remover?|cancelar?)\b/.test(normalized) &&
-    /\b(banco|conta|open.?finance|pluggy)\b/.test(normalized)
-  );
-}
-
-function isAskBankStatusRequest(text: string): boolean {
-  const normalized = normalizeHumanText(text);
-  return /\b(banco conectado|banco esta conectado|banco está conectado|status do banco|meu banco esta|meu banco está)\b/.test(normalized);
 }
 
 function greetingByTime(now: Date): string {
@@ -3352,6 +3357,39 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
       };
     }
 
+    // Saudação sem plano → apresentação da Iara, sem conselho não solicitado
+    if (isGreetingMessage(payload.text)) {
+      const firstName = customer.name?.trim().split(/\s+/)[0] ?? '';
+      const nameStr = firstName ? `, ${firstName}` : '';
+      const greetingVariants = [
+        [
+          `Oi${nameStr}! 👋 Sou a Iara, sua assistente financeira no WhatsApp.`,
+          'Posso te ajudar a registrar gastos, criar metas, definir limites e acompanhar seu dinheiro — tudo por aqui, sem app.',
+          'Para começar, me conta: você quer organizar seus gastos pessoais, empresariais ou os dois?'
+        ],
+        [
+          `Olá${nameStr}! Sou a Iara — assistente financeira que funciona direto no WhatsApp.`,
+          'Registro gastos, crio metas, mando alertas de vencimento e te ajudo a entender seu dinheiro sem complicação.',
+          'O que você quer resolver primeiro?'
+        ],
+        [
+          `Oi${nameStr}! 😊 Aqui é a Iara, sua assistente financeira pessoal.`,
+          'Me manda um gasto, uma dúvida financeira ou me diz o que você quer organizar — eu te ajudo de verdade, sem aquele jeitão de bot de menu.',
+          'Por onde quer começar?'
+        ]
+      ];
+      // Usa contagem de mensagens como seed para variar a cada novo cumprimento
+      const greetingMsgCount = (await recentConversationMessages(customer.id, 20)).filter(m => m.direction === 'inbound').length;
+      let h = greetingMsgCount;
+      for (const c of payload.from) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+      const outText = greetingVariants[Math.abs(h) % greetingVariants.length].join('\n');
+      await logConversation(customer.id, 'outbound', outText, { access, intent: 'onboarding-greeting' });
+      return {
+        replyText: outText,
+        responseBody: { ok: true, blocked: true, to: payload.from, replyText: outText, access, autoCharge: null }
+      };
+    }
+
     if ((isActivationRequest(payload.text) || selectedPlanCode !== null) && !taxId) {
       const outText = activationPromptMessage({
         now,
@@ -3373,11 +3411,19 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
       };
     }
 
-    const autoChargeAttempt = await tryAutoCreateCharge({
-      customerId: customer.id,
-      accessReason: access.reason,
-      dueDate: access.dueDate
-    });
+    // Só tenta criar cobrança se usuário explicitamente pediu ativação
+    const userWantsActivation = isActivationRequest(payload.text) || selectedPlanCode !== null;
+    const autoChargeAttempt = userWantsActivation
+      ? await tryAutoCreateCharge({ customerId: customer.id, accessReason: access.reason, dueDate: access.dueDate })
+      : { charge: null, failed: false };
+
+    // Conta quantas mensagens o usuário já enviou para calibrar o pitch
+    const recentBlockedMessages = await recentConversationMessages(customer.id, 10);
+    const blockedMsgCount = recentBlockedMessages.filter(m => m.direction === 'inbound').length;
+    const shouldPitchPlan = blockedMsgCount <= 1 || blockedMsgCount % 4 === 0;
+
+    // Detecta se usuário está tentando registrar gasto/receita sem plano ativo
+    const isTransactionAttempt = /\b(gastei|paguei|comprei|recebi|ganhei|saiu|sai)\b/.test(normalizeHumanText(payload.text));
 
     // Tenta responder livremente qualquer pergunta antes de mostrar bloqueio
     const aiFreestyle = await supportReply({
@@ -3386,8 +3432,12 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
         'Contexto extra:',
         '- Usuário ainda sem plano ativo. Pode tirar qualquer dúvida sobre finanças, o bot ou os planos.',
         '- Responda de forma humana e útil, sem travar na falta de plano.',
-        '- Se a pergunta for financeira (ex: como economizar, como organizar gastos, dicas), responda com qualidade.',
-        '- Ao final, convide gentilmente para ativar um plano com uma linha curta.',
+        isTransactionAttempt
+          ? '- CRÍTICO: o usuário tentou registrar um gasto/receita, mas sem plano ativo NADA foi salvo. NUNCA use "anotado", "registrado", "guardado" ou qualquer palavra que implique que o dado foi salvo. Em vez disso: reconheça o valor/gasto mencionado, explique em 1 frase que não foi salvo (sem plano ativo), e convide a ativar para começar a guardar o histórico de verdade.'
+          : '- Se a pergunta for financeira (ex: como economizar, como organizar gastos, dicas), responda com qualidade.',
+        shouldPitchPlan
+          ? '- Se o contexto for natural, mencione brevemente a possibilidade de ativar um plano ao final (1 frase, sem insistir).'
+          : '- NÃO mencione planos nessa resposta. Apenas responda a pergunta do usuário.',
         `- Catálogo: ${planCatalogSummaryInline()}.`
       ].join('\n'),
       customerName: customer.name,
@@ -4486,7 +4536,7 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     };
   }
 
-  if (/\bmeta\b/.test(normalizedText)) {
+  if (/\bmeta\b/.test(normalizedText) || /\b(quero\s+(?:guardar|economizar|poupar|juntar|separar)|vou\s+(?:guardar|economizar|poupar|juntar)|preciso\s+(?:guardar|economizar|juntar)|quero\s+(?:uma?\s+)?reserva)\b/.test(normalizedText)) {
     const locked = await featureGuard('goals');
     if (locked) {
       return {
@@ -4864,654 +4914,32 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     };
   }
 
-  if (isInsightsRequest(payload.text)) {
-    const locked = await featureGuard('insights');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'insights' }
-      };
-    }
-
-    const insights = await spendingInsights(customer.id, now, config.defaultTimezone);
-    const monthLabel = `${String(insights.month).padStart(2, '0')}/${insights.year}`;
-    const trend = insights.monthOverMonthPct === null
-      ? 'Sem base suficiente para comparar com mês anterior.'
-      : insights.monthOverMonthPct >= 0
-        ? `Seus gastos subiram ${insights.monthOverMonthPct.toFixed(1)}% vs mês anterior.`
-        : `Seus gastos caíram ${Math.abs(insights.monthOverMonthPct).toFixed(1)}% vs mês anterior.`;
-
-    const outText = [
-      `📊 Insights de ${monthLabel}:`,
-      `• Despesas no mês: ${centsToBrl(insights.expenseMtdCents)}`,
-      `• ${trend}`,
-      insights.topCategory
-        ? `• Categoria líder: ${decorateCategory(insights.topCategory.category)} (${centsToBrl(insights.topCategory.amountCents)} | ${insights.topCategory.sharePct.toFixed(1)}%)`
-        : '• Ainda sem categoria líder no mês.',
-      insights.topWeekday
-        ? `• Dia com mais gasto: ${insights.topWeekday.weekday} (${centsToBrl(insights.topWeekday.amountCents)})`
-        : '• Ainda sem padrão semanal identificado.',
-      'Quer que eu te sugira um limite semanal com base nisso?'
-    ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: 'spending-insights' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, insights }
-    };
-  }
-
-  if (isRecurringRequest(payload.text)) {
-    const locked = await featureGuard('recurring');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'recurring' }
-      };
-    }
-
-    const recurring = await detectRecurringExpenses(customer.id, now, config.defaultTimezone);
-    const outText = recurring.length === 0
-      ? [
-        'Ainda não encontrei gastos recorrentes claros.',
-        'Quando houver mais histórico, eu te aviso assinaturas suspeitas automaticamente.'
-      ].join('\n')
-      : [
-        '🔁 Possíveis gastos recorrentes detectados:',
-        ...recurring.map((item, index) => {
-          const nextDate = new Date(`${item.nextEstimatedDate}T12:00:00.000Z`).toLocaleDateString('pt-BR');
-          return `${index + 1}) ${decorateCategory(item.category)} | ${centsToBrl(item.amountCentsMedian)} | ${item.occurrences}x | próximo ~ ${nextDate}`;
-        }),
-        'Se quiser, eu transformo isso em lembretes de vencimento.'
-      ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: 'recurring-detection', count: recurring.length });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, recurring }
-    };
-  }
-
-  if (isCashflowForecastRequest(payload.text)) {
-    const locked = await featureGuard('cashflow');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'cashflow' }
-      };
-    }
-
-    const forecast = await forecastCashflowMonth(customer.id, now, config.defaultTimezone);
-    const monthLabel = `${String(forecast.month).padStart(2, '0')}/${forecast.year}`;
-    const outText = [
-      `🔮 Previsão de saldo (${monthLabel}):`,
-      `• Receita projetada: ${centsToBrl(forecast.projectedIncomeCents)}`,
-      `• Despesa projetada: ${centsToBrl(forecast.projectedExpenseCents)}`,
-      `• Saldo projetado: ${centsToBrl(forecast.projectedNetCents)}`,
-      `• Contas a vencer no mês: ${centsToBrl(forecast.upcomingBillsCents)}`,
-      `• Saldo após vencimentos: ${centsToBrl(forecast.projectedNetAfterBillsCents)}`,
-      'Quer que eu te recomende um teto semanal para segurar esse saldo?'
-    ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: 'cashflow-forecast' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, forecast }
-    };
-  }
-
-  const investmentSimulation = parseInvestmentSimulatorCommand(payload.text);
-  if (investmentSimulation) {
-    const locked = await featureGuard('investment_simulator');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'investment_simulator' }
-      };
-    }
-
-    const monthlyContribution = investmentSimulation.monthlyContributionCents / 100;
-    const rate = investmentSimulation.monthlyRatePct / 100;
-    const months = investmentSimulation.months;
-    const futureValue = rate === 0
-      ? monthlyContribution * months
-      : monthlyContribution * ((Math.pow(1 + rate, months) - 1) / rate);
-    const invested = monthlyContribution * months;
-    const earnings = Math.max(futureValue - invested, 0);
-
-    const outText = [
-      '💰 Simulação rápida de investimento:',
-      `• Aporte mensal: ${centsToBrl(investmentSimulation.monthlyContributionCents)}`,
-      `• Prazo: ${months} mês(es)`,
-      `• Taxa usada: ${investmentSimulation.monthlyRatePct.toFixed(2)}% ao mês`,
-      `• Total investido: ${centsToBrl(Math.round(invested * 100))}`,
-      `• Valor estimado final: ${centsToBrl(Math.round(futureValue * 100))}`,
-      `• Rendimentos estimados: ${centsToBrl(Math.round(earnings * 100))}`,
-      'Quer que eu simule também com outro valor mensal?'
-    ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: 'investment-simulator' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, investmentSimulation }
-    };
-  }
-
-  if (isScoreRequest(payload.text)) {
-    const locked = await featureGuard('health_score');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'health_score' }
-      };
-    }
-
-    const scoreData = await financialHealthScore(customer.id, now, config.defaultTimezone);
-    const scoreText = scoreData.score >= 800
-      ? 'Excelente fase! 🟢'
-      : scoreData.score >= 600
-        ? 'Boa evolução! 🟡'
-        : 'Vamos subir esse placar juntos 💪';
-    const outText = [
-      `🧠 Seu score financeiro (${String(scoreData.month).padStart(2, '0')}/${scoreData.year}) é ${scoreData.score}/1000.`,
-      scoreText,
-      ...scoreData.components.map((item) => `• ${item.label}: ${item.value}/${item.max}`),
-      'Quer que eu te diga o ajuste mais rápido para aumentar esse score esta semana?'
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: 'financial-score' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, score: scoreData }
-    };
-  }
-
-  if (isWeeklyScoreEvolutionRequest(payload.text)) {
-    const locked = await featureGuard('health_score');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'health_score' }
-      };
-    }
-
-    const evolution = await weeklyFinancialHealthSeries({
+  // ── Analytics intents (insights, recurring, cashflow, score, streak, achievements) ──
+  const analyticsIntent = detectAnalyticsIntent(payload.text);
+  if (analyticsIntent) {
+    return await handleAnalyticsIntents({
       customerId: customer.id,
-      referenceDate: now,
-      timezone: config.defaultTimezone,
-      weeks: 6
+      customerName: customer.name,
+      from: payload.from,
+      now,
+      planCode: currentPlanCode,
+      planName: currentPlanName,
+      ...analyticsIntent
     });
-    const latest = evolution.points[evolution.points.length - 1];
-    const trendLabel = evolution.latestDelta > 0
-      ? `subiu +${evolution.latestDelta}`
-      : evolution.latestDelta < 0
-        ? `caiu ${evolution.latestDelta}`
-        : 'ficou estável';
-    const outText = [
-      `📈 Evolução semanal do seu score (6 semanas): ${scoreSparkline(evolution.points.map((p) => p.score))}`,
-      `Score atual: ${latest?.score ?? 0}/1000 (${trendLabel} vs semana passada).`,
-      ...evolution.points.map((point, index) => `${index + 1}) ${new Date(`${point.weekStartDate}T12:00:00.000Z`).toLocaleDateString('pt-BR')} a ${new Date(`${point.weekEndDate}T12:00:00.000Z`).toLocaleDateString('pt-BR')}: ${point.score}`),
-      'Quer que eu te mande isso automaticamente toda segunda-feira?'
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: 'score-evolution-weekly' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, evolution }
-    };
   }
 
-  if (isVisualMonthlyReportRequest(payload.text)) {
-    const locked = await featureGuard('visual_monthly_report');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'visual_monthly_report' }
-      };
-    }
-
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
-    const report = await monthlyVisualReportData({ customerId: customer.id, month, year });
-    const mood = report.netCents >= 0 ? '💚' : '⚠️';
-    const top = report.topCategory
-      ? `${decorateCategory(report.topCategory.category)} (${report.topCategory.sharePct.toFixed(1)}%)`
-      : 'sem categoria líder';
-    const biggest = report.biggestExpense
-      ? `${decorateCategory(report.biggestExpense.category)} ${centsToBrl(report.biggestExpense.amountCents)}`
-      : 'sem gasto destaque';
-    const trend = report.monthOverMonthExpensePct === null
-      ? 'Sem comparação com mês anterior.'
-      : report.monthOverMonthExpensePct > 0
-        ? `Despesas +${report.monthOverMonthExpensePct.toFixed(1)}% vs mês anterior.`
-        : report.monthOverMonthExpensePct < 0
-          ? `Despesas -${Math.abs(report.monthOverMonthExpensePct).toFixed(1)}% vs mês anterior.`
-          : 'Despesas estáveis vs mês anterior.';
-    const outText = [
-      `🎴 Relatório visual ${String(report.month).padStart(2, '0')}/${report.year}`,
-      `${mood} Receitas: ${centsToBrl(report.totalIncomeCents)} | Despesas: ${centsToBrl(report.totalExpenseCents)} | Saldo: ${centsToBrl(report.netCents)}`,
-      `🏆 Categoria campeã: ${top}`,
-      `💸 Maior gasto: ${biggest}`,
-      `📊 Tendência: ${trend}`,
-      ...report.highlights.slice(0, 2).map((item) => `• ${item}`)
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: 'monthly-visual-report' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, report }
-    };
-  }
-
-  if (isStreakRequest(payload.text)) {
-    const locked = await featureGuard('gamification');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'gamification' }
-      };
-    }
-
-    const [streak, unlockedNow] = await Promise.all([
-      getCustomerStreak(customer.id, now, config.defaultTimezone),
-      evaluateAndUnlockAchievements(customer.id, now, config.defaultTimezone)
-    ]);
-    const unlockedLines = unlockedNow.map((item) => `🏅 Nova conquista: ${item.title}`);
-    const outText = [
-      `🔥 Seu streak atual é de ${streak.currentStreakDays} dia(s) seguidos.`,
-      `🏆 Seu melhor streak foi ${streak.bestStreakDays} dia(s).`,
-      `📅 Você teve atividade em ${streak.activeDaysLast30} dia(s) nos últimos 30.`,
-      ...unlockedLines,
-      'Quer bater um novo recorde hoje? Me manda um lançamento agora.'
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: 'streak-status' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, streak }
-    };
-  }
-
-  if (isAchievementsRequest(payload.text)) {
-    const locked = await featureGuard('gamification');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'gamification' }
-      };
-    }
-
-    const achievements = await listCustomerAchievements(customer.id);
-    const outText = achievements.length === 0
-      ? [
-        'Você ainda não desbloqueou conquistas.',
-        'Comece registrando gastos por alguns dias seguidos para liberar seus primeiros badges 🎮'
-      ].join('\n')
-      : [
-        '🎮 Suas conquistas:',
-        ...achievements.slice(0, 8).map((item, index) => `${index + 1}) ${item.title} — ${item.description}`),
-        achievements.length > 8 ? `... e mais ${achievements.length - 8} conquista(s).` : '',
-        'Bora desbloquear a próxima?'
-      ].filter(Boolean).join('\n');
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: 'achievements-list',
-      total: achievements.length
+  // ── Family intents ────────────────────────────────────────────────────────
+  const familyIntent = detectFamilyIntent(payload.text);
+  if (familyIntent) {
+    return await handleFamilyIntents({
+      customerId: customer.id,
+      customerName: customer.name,
+      from: payload.from,
+      now,
+      planCode: currentPlanCode,
+      planName: currentPlanName,
+      data: familyIntent
     });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, achievements }
-    };
-  }
-
-  const familyCreate = parseFamilyCreate(payload.text);
-  if (familyCreate) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    const fallbackName = customer.name ? `Família ${customer.name}` : 'Minha Família';
-    const group = await createFamilyGroup({
-      ownerCustomerId: customer.id,
-      name: familyCreate.name || fallbackName
-    });
-    const outText = [
-      `👨‍👩‍👧‍👦 Grupo familiar pronto: ${group.name}`,
-      `Código de convite: ${group.inviteCode}`,
-      'Para entrar, a outra pessoa pode mandar: "entrar na família CÓDIGO".'
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: 'family-create',
-      groupId: group.groupId
-    });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, familyGroup: group }
-    };
-  }
-
-  const familyJoin = parseFamilyJoinCode(payload.text);
-  if (familyJoin) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    try {
-      const joined = await joinFamilyGroupByCode({
-        customerId: customer.id,
-        inviteCode: familyJoin.code
-      });
-      const firstName = customer.name?.trim().split(/\s+/)[0] ?? 'você';
-      const outText = [
-        `Olá, ${firstName}! 👋 Vi que você entrou no grupo familiar "${joined.groupName}". Bem-vindo(a)! ✅`,
-        '',
-        'Eu sou a Iara, sua assistente financeira no WhatsApp. Aqui está o que posso fazer por você:',
-        '• Anotar seus gastos e receitas (ex: "gastei 80 no mercado")',
-        '• Mostrar seu resumo do mês',
-        '• Criar lembretes de contas a vencer',
-        '• Definir metas financeiras',
-        '• Ver o resumo da família (ex: "resumo da família")',
-        '',
-        `Membros no grupo: ${joined.activeMembers}/${joined.memberLimit}${joined.remainingSlots > 0 ? ` (${joined.remainingSlots} vaga(s) sobrando)` : ''}.`,
-        'Me manda qualquer dúvida ou já começa registrando um gasto! 🚀'
-      ].join('\n');
-      await logConversation(customer.id, 'outbound', outText, {
-        intent: 'family-join',
-        groupId: joined.groupId
-      });
-      return {
-        replyText: outText,
-        responseBody: { ok: true, to: payload.from, replyText: outText, familyGroup: joined }
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message === 'family_group_not_found') {
-        const outText = 'Não encontrei esse código de família. Confere o código e tenta de novo.';
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-join', status: 'not-found' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_group_not_found' }
-        };
-      }
-      if (error instanceof Error && error.message === 'family_group_full') {
-        const outText = [
-          'O grupo familiar já está lotado! 😕',
-          'O dono do grupo pode comprar vagas extras (R$29,90/mês por membro adicional) para liberar mais membros.',
-          'Peça ao dono para entrar em contato comigo sobre isso.'
-        ].join('\n');
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-join', status: 'full' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_group_full' }
-        };
-      }
-      throw error;
-    }
-  }
-
-  const familySetLimit = parseFamilySetLimit(payload.text);
-  if (familySetLimit) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    try {
-      const limit = await upsertFamilySpendingLimit({
-        actorCustomerId: customer.id,
-        period: familySetLimit.period,
-        amountCents: familySetLimit.amountCents
-      });
-      const outText = [
-        `Fechado ✅ limite familiar ${periodLabel(limit.period)} definido em ${centsToBrl(limit.amountCents)}.`,
-        'Vou alertar quando o grupo estiver perto de estourar esse teto.'
-      ].join('\n');
-      await logConversation(customer.id, 'outbound', outText, { intent: 'family-set-limit', period: limit.period });
-      return {
-        replyText: outText,
-        responseBody: { ok: true, to: payload.from, replyText: outText, limit }
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message === 'family_owner_required') {
-        const outText = 'Só o dono do grupo pode definir limite familiar.';
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-set-limit', status: 'owner-required' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_owner_required' }
-        };
-      }
-      if (error instanceof Error && error.message === 'family_group_not_found') {
-        const outText = 'Você ainda não está em uma família. Mande "criar família" primeiro.';
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-set-limit', status: 'no-group' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_group_not_found' }
-        };
-      }
-      throw error;
-    }
-  }
-
-  const familyClearLimit = parseFamilyClearLimit(payload.text);
-  if (familyClearLimit) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    try {
-      const removed = await clearFamilySpendingLimit({
-        actorCustomerId: customer.id,
-        period: familyClearLimit.period
-      });
-      const outText = removed.removed
-        ? `Removi o limite familiar ${periodLabel(familyClearLimit.period)}.`
-        : `Não havia limite familiar ${periodLabel(familyClearLimit.period)} ativo para remover.`;
-      await logConversation(customer.id, 'outbound', outText, { intent: 'family-clear-limit', removed: removed.removed });
-      return {
-        replyText: outText,
-        responseBody: { ok: true, to: payload.from, replyText: outText, removed }
-      };
-    } catch (error) {
-      if (error instanceof Error && error.message === 'family_owner_required') {
-        const outText = 'Só o dono do grupo pode remover limites familiares.';
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-clear-limit', status: 'owner-required' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_owner_required' }
-        };
-      }
-      if (error instanceof Error && error.message === 'family_group_not_found') {
-        const outText = 'Você ainda não está em uma família ativa.';
-        await logConversation(customer.id, 'outbound', outText, { intent: 'family-clear-limit', status: 'no-group' });
-        return {
-          replyText: outText,
-          responseBody: { ok: true, to: payload.from, replyText: outText, status: 'family_group_not_found' }
-        };
-      }
-      throw error;
-    }
-  }
-
-  if (isFamilyListLimitsRequest(payload.text)) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    const [limits, statuses] = await Promise.all([
-      listFamilySpendingLimits(customer.id),
-      familySpendingLimitStatuses({
-        actorCustomerId: customer.id,
-        referenceDate: now,
-        timezone: config.defaultTimezone
-      })
-    ]);
-    if (!limits.groupId) {
-      const outText = 'Você ainda não está em um grupo familiar. Mande "criar família".';
-      await logConversation(customer.id, 'outbound', outText, { intent: 'family-limits', status: 'no-group' });
-      return {
-        replyText: outText,
-        responseBody: { ok: true, to: payload.from, replyText: outText, limits: [] }
-      };
-    }
-
-    const actives = limits.items.filter((item) => item.isActive);
-    const outText = actives.length === 0
-      ? [
-        'Seu grupo ainda não tem limites familiares ativos.',
-        limits.role === 'owner'
-          ? 'Exemplo: "limite família semanal 1800".'
-          : 'Peça ao dono do grupo para definir um limite familiar.'
-      ].join('\n')
-      : [
-        `Limites familiares (${limits.role === 'owner' ? 'dono' : 'membro'}):`,
-        ...actives.map((item) => {
-          const status = statuses.statuses.find((s) => s.period === item.period);
-          const statusLabel = status?.status === 'near'
-            ? ` (atenção: faltam ${centsToBrl(status.remainingCents)})`
-            : status?.status === 'exceeded'
-              ? ` (estourado em ${centsToBrl(Math.abs(status.remainingCents))})`
-              : '';
-          return `• ${periodEmoji(item.period)} ${periodLabel(item.period)}: ${centsToBrl(item.amountCents)}${statusLabel}`;
-        })
-      ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: 'family-limits',
-      activeCount: actives.length
-    });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, limits, statuses }
-    };
-  }
-
-  if (isFamilySummaryRequest(payload.text)) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    const summary = await familyMonthlySummary(customer.id, now, config.defaultTimezone);
-    if (!summary) {
-      const outText = [
-        'Você ainda não está em um grupo familiar.',
-        'Para começar, mande: "criar família".'
-      ].join('\n');
-      await logConversation(customer.id, 'outbound', outText, { intent: 'family-summary', status: 'no-group' });
-      return {
-        replyText: outText,
-        responseBody: { ok: true, to: payload.from, replyText: outText, summary: null }
-      };
-    }
-
-    const categories = summary.byCategory.length > 0
-      ? summary.byCategory.map((item) => `• ${decorateCategory(item.category)}: ${centsToBrl(item.amountCents)}`)
-      : ['• Sem despesas em categorias neste mês.'];
-    const memberRanking = summary.memberExpenses.length > 0
-      ? summary.memberExpenses.map((item, index) => `${index + 1}) ${(item.name ?? 'Sem nome')}: ${centsToBrl(item.amountCents)}`)
-      : ['Sem despesas por membro no período.'];
-    const familyLimitLines = summary.limitStatuses.length > 0
-      ? summary.limitStatuses.map((item) => {
-        if (item.status === 'near') {
-          return `• ${periodEmoji(item.period)} ${periodLabel(item.period)}: faltam ${centsToBrl(item.remainingCents)} para ${centsToBrl(item.limitCents)}.`;
-        }
-        if (item.status === 'exceeded') {
-          return `• ${periodEmoji(item.period)} ${periodLabel(item.period)}: estourado em ${centsToBrl(Math.abs(item.remainingCents))} (limite ${centsToBrl(item.limitCents)}).`;
-        }
-        return `• ${periodEmoji(item.period)} ${periodLabel(item.period)}: ${centsToBrl(item.spentCents)} de ${centsToBrl(item.limitCents)}.`;
-      })
-      : ['• Sem limite familiar ativo.'];
-    const outText = [
-      `👨‍👩‍👧‍👦 Resumo da família ${String(summary.month).padStart(2, '0')}/${summary.year}:`,
-      `• Receitas: ${centsToBrl(summary.totalIncomeCents)}`,
-      `• Despesas: ${centsToBrl(summary.totalExpenseCents)}`,
-      `• Saldo: ${centsToBrl(summary.netCents)}`,
-      `• Membros: ${summary.members.map((m) => m.name || m.whatsappNumber).join(', ')}`,
-      'Categorias:',
-      ...categories,
-      'Ranking de gastos do grupo:',
-      ...memberRanking,
-      'Status dos limites do grupo:',
-      ...familyLimitLines
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: 'family-summary' });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, summary }
-    };
-  }
-
-  if (isFamilyInfoRequest(payload.text)) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    const context = await getFamilyContextForCustomer(customer.id);
-    const limitInfo = context
-      ? await listFamilySpendingLimits(customer.id)
-      : null;
-    const outText = !context
-      ? 'Você ainda não faz parte de um grupo familiar. Mande "criar família" para começar.'
-      : [
-        `Seu grupo: ${context.groupName}`,
-        `Código de convite: ${context.inviteCode}`,
-        `Seu papel: ${context.role === 'owner' ? 'dono(a)' : 'membro'}`,
-        `Membros (${context.members.length}): ${context.members.map((m) => m.name || m.whatsappNumber).join(', ')}`,
-        `Limites familiares ativos: ${limitInfo?.items.filter((item) => item.isActive).length ?? 0}`,
-        context.role === 'owner'
-          ? 'Como dono(a), você pode definir limites: "limite família semanal 2000".'
-          : 'Somente o dono pode alterar limites do grupo.'
-      ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: 'family-info',
-      hasGroup: Boolean(context)
-    });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, family: context }
-    };
-  }
-
-  if (isFamilyLeaveRequest(payload.text)) {
-    const locked = await featureGuard('family_mode');
-    if (locked) {
-      return {
-        replyText: locked,
-        responseBody: { ok: true, to: payload.from, replyText: locked, blockedFeature: 'family_mode' }
-      };
-    }
-
-    const left = await leaveFamilyGroup(customer.id);
-    const outText = left.left
-      ? 'Você saiu do grupo familiar. Se quiser voltar, use um novo código de convite.'
-      : 'Você não estava em nenhum grupo familiar ativo.';
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: 'family-leave',
-      left: left.left
-    });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, left }
-    };
   }
 
   const contextualCorrection = parseContextualCorrection(payload.text);
@@ -5595,60 +5023,22 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
   }
 
   // ── Open Finance (bank connection) intents ────────────────────────────────
-  if (isConnectBankRequest(payload.text)) {
-    const { isPluggyConfigured } = await import('../services/pluggy.js');
-    if (!isPluggyConfigured()) {
-      const outText = 'Open Finance ainda não está disponível. Em breve você poderá conectar seu banco aqui! 🏦';
-      await logConversation(customer.id, 'outbound', outText, { intent: 'connect-bank', reason: 'not-configured' });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-    }
-    const { getBankConnectionByCustomer, deleteBankConnection } = await import('../services/ledger.js');
-    const { createConnectToken } = await import('../services/pluggy.js');
-    const existing = await getBankConnectionByCustomer(customer.id);
-    if (existing && existing.status === 'connected') {
-      const outText = `Você já tem o *${existing.institutionName ?? 'seu banco'}* conectado! 🏦\n\nSe quiser trocar, me diga "desconectar banco" primeiro.`;
-      await logConversation(customer.id, 'outbound', outText, { intent: 'connect-bank', reason: 'already-connected' });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-    }
-    const webhookUrl = `${process.env.API_PUBLIC_URL ?? ''}/openfinance/webhook/pluggy`;
-    const token = await createConnectToken({ webhookUrl });
-    const link = `https://connect.pluggy.ai?token=${token}`;
-    const outText = `🏦 *Conectar seu banco à Iara*\n\nClique no link abaixo, escolha seu banco e autorize o acesso. Leva menos de 1 minuto:\n\n${link}\n\n_O link expira em 30 minutos._`;
-    await logConversation(customer.id, 'outbound', outText, { intent: 'connect-bank' });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-  }
-
-  if (isDisconnectBankRequest(payload.text)) {
-    const { getBankConnectionByCustomer, deleteBankConnection } = await import('../services/ledger.js');
-    const { deleteItem } = await import('../services/pluggy.js');
-    const conn = await getBankConnectionByCustomer(customer.id);
-    if (!conn) {
-      const outText = 'Não encontrei nenhum banco conectado na sua conta. 🤔';
-      await logConversation(customer.id, 'outbound', outText, { intent: 'disconnect-bank', reason: 'not-found' });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-    }
-    try { await deleteItem(conn.pluggyItemId); } catch { /* ignora erro Pluggy */ }
-    await deleteBankConnection(customer.id);
-    const outText = `Banco desconectado com sucesso! ✅\n\nSe quiser conectar novamente, é só me dizer "conectar banco".`;
-    await logConversation(customer.id, 'outbound', outText, { intent: 'disconnect-bank' });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-  }
-
-  if (isAskBankStatusRequest(payload.text)) {
-    const { getBankConnectionByCustomer } = await import('../services/ledger.js');
-    const conn = await getBankConnectionByCustomer(customer.id);
-    let outText: string;
-    if (!conn) {
-      outText = 'Você ainda não tem um banco conectado. 🏦\n\nQuer conectar agora? É só me dizer "conectar banco"!';
-    } else if (conn.status === 'connected') {
-      outText = `Seu *${conn.institutionName ?? 'banco'}* está conectado e funcionando! ✅\n\nSuas transações são importadas automaticamente.`;
-    } else {
-      outText = `O status do seu banco é: *${conn.status}*. Se houver problema, me diga "desconectar banco" e tente conectar novamente.`;
-    }
-    await logConversation(customer.id, 'outbound', outText, { intent: 'ask-bank-status' });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText } };
-  }
+  const openFinanceResult = await handleOpenFinanceIntents({ customerId: customer.id, from: payload.from, text: payload.text });
+  if (openFinanceResult) return openFinanceResult;
   // ── fim Open Finance ──────────────────────────────────────────────────────
+
+  // ── PDF report export ─────────────────────────────────────────────────────
+  if (isPdfReportRequest(payload.text)) {
+    return await handlePdfReport({
+      customerId: customer.id,
+      customerName: customer.name,
+      from: payload.from,
+      text: payload.text,
+      now,
+      apiPublicUrl: process.env.API_PUBLIC_URL ?? ''
+    });
+  }
+  // ── fim PDF report ────────────────────────────────────────────────────────
 
   const intent = await parseIntent(payload.text, now, {
     context: {
@@ -5679,6 +5069,28 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
   }
 
   if (intent.type === 'confirm-transaction-action') {
+    // Auto-registra sem pedir confirmação quando: valor pequeno (<R$500) e categoria clara
+    const autoRegisterThreshold = 50000; // R$500
+    const hasKnownCategory = intent.category && intent.category !== 'outros';
+    if (intent.amountCents && intent.amountCents < autoRegisterThreshold && hasKnownCategory) {
+      await saveTransaction({
+        customerId: customer.id,
+        kind: intent.kind ?? 'expense',
+        amountCents: intent.amountCents,
+        category: intent.category ?? 'outros',
+        description: payload.text.slice(0, 200),
+        occurredAtIso: now.toISOString(),
+        sourceMessage: payload.text
+      });
+      const categoryLabel = decorateCategory(intent.category ?? 'outros');
+      const outText = `Anotado! ✅ ${centsToBrl(intent.amountCents)} em ${categoryLabel}.`;
+      await logConversation(customer.id, 'outbound', outText, { intent: 'register-transaction' });
+      return {
+        replyText: outText,
+        responseBody: { ok: true, to: payload.from, replyText: outText }
+      };
+    }
+
     const amountLabel = intent.amountCents ? centsToBrl(intent.amountCents) : 'esse valor';
     const categoryLabel = intent.category ? ` em ${decorateCategory(intent.category)}` : '';
     const [askLine, hintLine] = await Promise.all([
@@ -5772,361 +5184,14 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     };
   }
 
-  if (intent.type === 'ask-breakdown') {
-    const summary = await monthlySummary(customer.id, intent.month, intent.year);
-    const categories = summary.byCategory
-      .filter((item) => item.amountCents > 0)
-      .slice(0, 8)
-      .map((item) => `• ${decorateCategory(item.category)}: ${centsToBrl(item.amountCents)}`);
-    const outText = categories.length > 0
-      ? [
-        `Detalhamento ${String(intent.month).padStart(2, '0')}/${intent.year}:`,
-        ...categories,
-        'Se quiser, eu explico também o que mais pesou no seu mês.'
-      ].join('\n')
-      : `Ainda não há categorias com gastos em ${String(intent.month).padStart(2, '0')}/${intent.year}. Quer lançar um gasto agora?`;
-    await logConversation(customer.id, 'outbound', outText, {
-      intent: intent.type,
-      month: intent.month,
-      year: intent.year
-    });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, intent }
-    };
-  }
-
-  if (intent.type === 'ask-expense-period') {
-    const outText = [
-      'Claro! Qual período você quer consultar?',
-      '',
-      '1️⃣ Este mês',
-      '2️⃣ Mês passado',
-      '3️⃣ Esta semana',
-      '4️⃣ Hoje',
-      '5️⃣ Últimos 2 meses',
-      '6️⃣ Últimos 3 meses'
-    ].join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-    return {
-      replyText: outText,
-      responseBody: { ok: true, to: payload.from, replyText: outText, intent }
-    };
-  }
-
-  if (intent.type === 'full-expense-list') {
-    const tz = config.defaultTimezone ?? 'America/Sao_Paulo';
-    const nowLocal = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-    const startOfDay = new Date(nowLocal);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    let since: Date;
-    let until: Date;
-    let periodLabel: string;
-
-    if (intent.period === 'today') {
-      since = new Date(now.getTime() - (nowLocal.getTime() - startOfDay.getTime()));
-      until = new Date(since.getTime() + 86400000);
-      periodLabel = `Hoje (${String(nowLocal.getDate()).padStart(2, '0')}/${String(nowLocal.getMonth() + 1).padStart(2, '0')}/${nowLocal.getFullYear()})`;
-    } else if (intent.period === 'this-week') {
-      const dow = nowLocal.getDay();
-      const monday = new Date(startOfDay.getTime() - (dow === 0 ? 6 : dow - 1) * 86400000);
-      const diff = nowLocal.getTime() - startOfDay.getTime();
-      since = new Date(now.getTime() - diff - (dow === 0 ? 6 : dow - 1) * 86400000);
-      until = new Date(since.getTime() + 7 * 86400000);
-      periodLabel = `Esta semana`;
-    } else if (intent.period === 'this-month') {
-      const m = nowLocal.getMonth() + 1;
-      const y = nowLocal.getFullYear();
-      since = new Date(`${y}-${String(m).padStart(2, '0')}-01T00:00:00`);
-      until = new Date(m === 12 ? `${y + 1}-01-01T00:00:00` : `${y}-${String(m + 1).padStart(2, '0')}-01T00:00:00`);
-      periodLabel = `${String(m).padStart(2, '0')}/${y}`;
-    } else if (intent.period === 'last-month') {
-      const m = nowLocal.getMonth() === 0 ? 12 : nowLocal.getMonth();
-      const y = nowLocal.getMonth() === 0 ? nowLocal.getFullYear() - 1 : nowLocal.getFullYear();
-      since = new Date(`${y}-${String(m).padStart(2, '0')}-01T00:00:00`);
-      until = new Date(`${nowLocal.getFullYear()}-${String(nowLocal.getMonth() + 1).padStart(2, '0')}-01T00:00:00`);
-      periodLabel = `${String(m).padStart(2, '0')}/${y}`;
-    } else if (intent.period === 'last-2-months') {
-      const curM = nowLocal.getMonth() + 1;
-      const curY = nowLocal.getFullYear();
-      const startM = curM <= 2 ? curM + 10 : curM - 2;
-      const startY = curM <= 2 ? curY - 1 : curY;
-      since = new Date(`${startY}-${String(startM).padStart(2, '0')}-01T00:00:00`);
-      until = new Date(curM === 12 ? `${curY + 1}-01-01T00:00:00` : `${curY}-${String(curM + 1).padStart(2, '0')}-01T00:00:00`);
-      periodLabel = `Últimos 2 meses`;
-    } else {
-      // last-3-months
-      const curM = nowLocal.getMonth() + 1;
-      const curY = nowLocal.getFullYear();
-      const startM = curM <= 3 ? curM + 9 : curM - 3;
-      const startY = curM <= 3 ? curY - 1 : curY;
-      since = new Date(`${startY}-${String(startM).padStart(2, '0')}-01T00:00:00`);
-      until = new Date(curM === 12 ? `${curY + 1}-01-01T00:00:00` : `${curY}-${String(curM + 1).padStart(2, '0')}-01T00:00:00`);
-      periodLabel = `Últimos 3 meses`;
-    }
-
-    const transactions = await getTransactionList(customer.id, { since, until });
-
-    if (transactions.length === 0) {
-      const outText = `📋 Extrato — ${periodLabel}:\n\nNenhum lançamento encontrado neste período.`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type, period: intent.period });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-
-    const totalExpenseCents = transactions.filter(t => t.kind === 'expense').reduce((s, t) => s + t.amountCents, 0);
-    const totalIncomeCents = transactions.filter(t => t.kind === 'income').reduce((s, t) => s + t.amountCents, 0);
-
-    const formatLine = (t: typeof transactions[0]): string => {
-      const d = new Date(t.occurredAt);
-      const localStr = d.toLocaleString('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      const [datePart, timePart] = localStr.split(', ');
-      const prefix = t.kind === 'income' ? '💰' : '💸';
-      return `${datePart} ${timePart ?? ''} — ${categoryEmoji(t.category)} ${t.category} — ${prefix} ${centsToBrl(t.amountCents)}`;
-    };
-
-    const displayed = transactions.slice(0, 50);
-    const truncated = transactions.length > 50;
-
-    const lines = [
-      `📋 Extrato — ${periodLabel}:`,
-      '',
-      ...displayed.map(formatLine),
-      ...(truncated ? [`\n(mostrando 50 de ${transactions.length} lançamentos)`] : []),
-      '',
-      `💸 Total gastos: ${centsToBrl(totalExpenseCents)}`,
-      ...(totalIncomeCents > 0 ? [`💰 Total receitas: ${centsToBrl(totalIncomeCents)}`] : []),
-      `📦 ${transactions.length} lançamento(s)`
-    ];
-
-    const outText = lines.join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, period: intent.period, count: transactions.length });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'set-savings-goal-missing-info') {
-    const deadlinePart = intent.deadlineIso
-      ? ` para ${new Date(intent.deadlineIso + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`
-      : '';
-    const outText = `Claro, adoro isso! 🎯\n\nMe diz: quanto você quer juntar${deadlinePart}? E pra quê é essa meta?\n\nManda assim: "meta de R$ 2.000 para viagem até julho"`;
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'set-savings-goal') {
-    const capacity = await getCustomerFinancialCapacity(customer.id);
-    const deadlineDate = new Date(intent.deadlineIso + 'T23:59:59');
-    const monthsRemaining = Math.max(
-      1,
-      (deadlineDate.getFullYear() - now.getFullYear()) * 12 + (deadlineDate.getMonth() - now.getMonth()) + 1
-    );
-    const idealMonthlyTargetCents = Math.ceil(intent.targetAmountCents / monthsRemaining);
-    const surplusCents = capacity.avgMonthlySurplusCents;
-    const feasible = surplusCents >= idealMonthlyTargetCents;
-    const monthlyTargetCents = Math.min(idealMonthlyTargetCents, Math.max(surplusCents, 0));
-
-    const goalId = await createSavingsGoal({
-      customerId: customer.id,
-      description: intent.description,
-      targetCents: intent.targetAmountCents,
-      deadlineDate: new Date(intent.deadlineIso + 'T12:00:00'),
-      monthlyTargetCents: idealMonthlyTargetCents
-    });
-
-    const deadlineFmt = new Date(intent.deadlineIso + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-    const lines: string[] = [
-      `🎯 Meta criada: *${intent.description}*`,
-      `💰 Valor alvo: ${centsToBrl(intent.targetAmountCents)}`,
-      `📅 Prazo: ${deadlineFmt} (${monthsRemaining} mes${monthsRemaining > 1 ? 'es' : ''})`,
-      `📊 Meta mensal: ${centsToBrl(idealMonthlyTargetCents)}`,
-      ''
-    ];
-
-    if (feasible) {
-      lines.push(`✅ Seu histórico mostra sobra média de ${centsToBrl(surplusCents)}/mês — você consegue cumprir essa meta!`);
-    } else if (surplusCents > 0) {
-      const realisticMonths = Math.ceil(intent.targetAmountCents / surplusCents);
-      lines.push(`⚠️ Sua sobra média é ${centsToBrl(surplusCents)}/mês. Para este valor, você precisaria de ~${realisticMonths} meses.`);
-      lines.push(`Vou te acompanhar e avisar se os gastos estiverem ameaçando o objetivo.`);
-    } else {
-      lines.push(`⚠️ Seu histórico não mostra sobra clara ainda. Vou monitorar e te alertar se os gastos ameaçarem a meta.`);
-    }
-
-    lines.push('');
-    lines.push(`Vou te acompanhar todo mês e avisar quando algo estiver fora do trilho. 💪`);
-
-    const outText = lines.join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, goalId });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'ask-savings-goal-status') {
-    const goals = await getActiveSavingsGoals(customer.id);
-    if (goals.length === 0) {
-      const outText = `Você não tem nenhuma meta de poupança ativa no momento. 📭\n\nQuer criar uma? Me diz quanto quer guardar e para quando!`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-
-    const goal = goals[0];
-    const progress = await getSavingsGoalMonthlyProgress({ customerId: customer.id, goalCreatedAt: goal.createdAt });
-    const deadlineDate = goal.deadlineDate;
-    const monthsRemaining = Math.max(
-      1,
-      (deadlineDate.getFullYear() - now.getFullYear()) * 12 + (deadlineDate.getMonth() - now.getMonth()) + 1
-    );
-    const projectedTotal = progress.avgMonthlySurplusCents * monthsRemaining;
-    const onTrack = projectedTotal >= goal.targetCents;
-    const deadlineFmt = deadlineDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-
-    const lines = [
-      `🎯 Meta: *${goal.description}*`,
-      `💰 Alvo: ${centsToBrl(goal.targetCents)} até ${deadlineFmt}`,
-      `📊 Meta mensal: ${centsToBrl(goal.monthlyTargetCents)}`,
-      `📈 Sobra este mês: ${centsToBrl(progress.currentMonthSurplusCents)}`,
-      `📉 Média histórica de sobra: ${centsToBrl(progress.avgMonthlySurplusCents)}`,
-      '',
-      onTrack
-        ? `✅ Você está no caminho certo! Projetando ${centsToBrl(projectedTotal)} até o prazo.`
-        : `⚠️ Risco de não bater a meta. Projetando ${centsToBrl(projectedTotal)} — faltam ${centsToBrl(goal.targetCents - projectedTotal)} para cobrir.`
-    ];
-
-    const outText = lines.join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, goalId: goal.id });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'cancel-savings-goal') {
-    const cancelled = await cancelActiveSavingsGoals(customer.id);
-    const outText = cancelled > 0
-      ? `Meta cancelada. ✅ Se quiser criar uma nova, é só me dizer quanto quer guardar e para quando!`
-      : `Você não tem nenhuma meta ativa para cancelar. 📭`;
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, cancelled });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  // ── Cofres familiares ────────────────────────────────────────────────────
-  if (intent.type === 'set-family-vault') {
-    let vaultResult: { vaultId: string; groupId: string } | null = null;
-    try {
-      const deadlineDate = new Date(intent.deadlineIso + 'T12:00:00');
-      const deadlineDate2 = new Date(intent.deadlineIso + 'T23:59:59');
-      const monthsRemaining = Math.max(
-        1,
-        (deadlineDate.getFullYear() - now.getFullYear()) * 12 + (deadlineDate.getMonth() - now.getMonth()) + 1
-      );
-      const monthlyTargetCents = Math.ceil(intent.targetAmountCents / monthsRemaining);
-      vaultResult = await createFamilyVault({
-        customerId: customer.id,
-        description: intent.description,
-        targetCents: intent.targetAmountCents,
-        deadlineDate: deadlineDate2,
-        monthlyTargetCents
-      });
-      const deadlineFmt = deadlineDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-      const outText = [
-        `🏦 Cofre criado para a família: *${intent.description}*`,
-        `💰 Alvo: ${centsToBrl(intent.targetAmountCents)} até ${deadlineFmt}`,
-        `📊 Meta mensal da família: ${centsToBrl(monthlyTargetCents)}`,
-        ``,
-        `Todos os membros contribuem juntos. Vou monitorar e avisar se o ritmo estiver fora do trilho. 💪`
-      ].join('\n');
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type, vaultId: vaultResult.vaultId });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    } catch (err) {
-      const isNoGroup = err instanceof Error && err.message === 'family_group_not_found';
-      const outText = isNoGroup
-        ? `Você precisa estar em um grupo familiar para criar cofres compartilhados. Crie um grupo primeiro com "criar grupo familiar"! 👨‍👩‍👧`
-        : `Não consegui criar o cofre agora. Tente novamente.`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-  }
-
-  if (intent.type === 'ask-family-vault-status') {
-    const vaults = await getActiveFamilyVaults(customer.id);
-    if (vaults.length === 0) {
-      const outText = `A família não tem nenhum cofre ativo no momento. 📭\n\nQuer criar um? É só dizer: "cofre familiar de R$X para [objetivo] em [mês]"!`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-
-    const lines: string[] = [`🏦 *Cofres da família:*`, ``];
-    for (const vault of vaults) {
-      const progress = await getFamilyVaultProgress({ groupId: vault.groupId, vaultCreatedAt: vault.createdAt, now });
-      const deadlineDate = vault.deadlineDate;
-      const monthsRemaining = Math.max(
-        1,
-        (deadlineDate.getFullYear() - now.getFullYear()) * 12 + (deadlineDate.getMonth() - now.getMonth()) + 1
-      );
-      const projected = progress.avgMonthlySurplusCents * monthsRemaining;
-      const onTrack = projected >= vault.targetCents;
-      const deadlineFmt = deadlineDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-      lines.push(
-        `🎯 *${vault.description}*`,
-        `   Alvo: ${centsToBrl(vault.targetCents)} até ${deadlineFmt}`,
-        `   Meta/mês: ${centsToBrl(vault.monthlyTargetCents)} | Sobra atual: ${centsToBrl(progress.currentMonthSurplusCents)}`,
-        onTrack
-          ? `   ✅ No caminho certo (projeção: ${centsToBrl(projected)})`
-          : `   ⚠️ Em risco (projeção: ${centsToBrl(projected)}, faltam ${centsToBrl(vault.targetCents - projected)})`,
-        ``
-      );
-    }
-
-    const outText = lines.join('\n');
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, vaultCount: vaults.length });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'cancel-family-vault') {
-    const cancelled = await cancelActiveFamilyVaults(customer.id);
-    const outText = cancelled > 0
-      ? `Cofre(s) da família cancelado(s). ✅`
-      : `Não há cofres familiares ativos para cancelar. 📭`;
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, cancelled });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'ask-family-meeting') {
-    const summary = await familyMonthlySummary(customer.id, now, config.defaultTimezone ?? 'America/Sao_Paulo');
-    if (!summary) {
-      const outText = `Você não está em um grupo familiar ainda. Crie um grupo para usar essa função! 👨‍👩‍👧`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-
-    const monthName = new Date(summary.year, summary.month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-    const topCategories = summary.byCategory.slice(0, 5)
-      .map(c => `   • ${c.category}: ${centsToBrl(c.amountCents)}`).join('\n');
-    const memberLines = summary.memberExpenses
-      .map(m => `   • ${m.name ?? 'Membro'}: ${centsToBrl(m.amountCents)}`).join('\n');
-
-    const statusLine = summary.netCents >= 0
-      ? `✅ Saldo positivo: ${centsToBrl(summary.netCents)}`
-      : `⚠️ Saldo negativo: ${centsToBrl(Math.abs(summary.netCents))}`;
-
-    const outText = [
-      `📋 *Reunião Financeira — ${monthName}*`,
-      ``,
-      `💰 Entradas: ${centsToBrl(summary.totalIncomeCents)}`,
-      `💸 Saídas: ${centsToBrl(summary.totalExpenseCents)}`,
-      `${statusLine}`,
-      ``,
-      `📊 *Top categorias:*`,
-      topCategories || `   Sem dados`,
-      ``,
-      `👥 *Gastos por membro:*`,
-      memberLines || `   Sem dados`,
-      ``,
-      `🎯 *Meta para o próximo mês:*`,
-      summary.netCents < 0
-        ? `   Cortar ${centsToBrl(Math.abs(summary.netCents))} dos gastos para equilibrar a casa.`
-        : `   Destinar ${centsToBrl(Math.round(summary.netCents * 0.3))} para os cofres da família.`
-    ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, month: summary.month, year: summary.year });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
+  const queryIntentResult = await handleQueryIntents({
+    customerId: customer.id,
+    customerName: customer.name,
+    from: payload.from,
+    now,
+    intent,
+  });
+  if (queryIntentResult) return queryIntentResult;
 
   if (intent.type === 'simulate-decision') {
     const categories = await getSpendingByCategory(customer.id, 3);
@@ -6170,45 +5235,6 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
 
     const outText = simulationReply ?? fallbackSimulation;
     await logConversation(customer.id, 'outbound', outText, { intent: intent.type, query: intent.rawQuery });
-    return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-  }
-
-  if (intent.type === 'ask-couple-balance') {
-    const summary = await familyMonthlySummary(customer.id, now, config.defaultTimezone ?? 'America/Sao_Paulo');
-    if (!summary || summary.members.length < 2) {
-      const outText = summary
-        ? `Preciso de pelo menos 2 membros no grupo familiar para mostrar o balanço do casal. Convide seu parceiro(a)! 💑`
-        : `Você não está em um grupo familiar ainda. Crie um grupo e convide seu parceiro(a) para usar o modo casal! 💑`;
-      await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
-      return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
-    }
-
-    const sorted = [...summary.memberExpenses].sort((a, b) => b.amountCents - a.amountCents);
-    const [first, second] = sorted;
-    const diff = (first?.amountCents ?? 0) - (second?.amountCents ?? 0);
-    const monthName = new Date(summary.year, summary.month - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
-
-    const memberLines = sorted.map(m => `   • ${m.name ?? 'Membro'}: ${centsToBrl(m.amountCents)}`).join('\n');
-    const balanceLine = diff === 0
-      ? `   ✅ Gastos equilibrados entre vocês!`
-      : `   ${first?.name ?? 'Membro 1'} gastou ${centsToBrl(diff)} a mais que ${second?.name ?? 'Membro 2'}.`;
-
-    const outText = [
-      `💑 *Balanço do Casal — ${monthName}*`,
-      ``,
-      `💸 *Gastos por pessoa:*`,
-      memberLines,
-      ``,
-      balanceLine,
-      ``,
-      `📊 Total do grupo: ${centsToBrl(summary.totalExpenseCents)}`,
-      `💰 Entradas: ${centsToBrl(summary.totalIncomeCents)}`,
-      summary.netCents >= 0
-        ? `✅ Saldo do casal: ${centsToBrl(summary.netCents)}`
-        : `⚠️ Déficit do casal: ${centsToBrl(Math.abs(summary.netCents))}`
-    ].join('\n');
-
-    await logConversation(customer.id, 'outbound', outText, { intent: intent.type, month: summary.month, year: summary.year });
     return { replyText: outText, responseBody: { ok: true, to: payload.from, replyText: outText, intent } };
   }
 
@@ -6362,6 +5388,33 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
   if (intent.type === 'register-transaction') {
     const safeExecution = isSafeTransactionalExecution(intent, payload.text);
     if (!safeExecution.safe) {
+      // Auto-registra expressões informais curtas sem verbo explícito (ex: "uber 28", "30 mercado")
+      // quando: valor pequeno (<R$500), categoria clara, bloqueio só por ausência de verbo
+      const autoSmallInformal =
+        safeExecution.reason === 'missing-explicit-write-signal' &&
+        intent.amountCents &&
+        intent.amountCents < 50000 &&
+        intent.category &&
+        intent.category !== 'outros';
+      if (autoSmallInformal) {
+        await saveTransaction({
+          customerId: customer.id,
+          kind: intent.kind ?? 'expense',
+          amountCents: intent.amountCents!,
+          category: intent.category!,
+          description: payload.text.slice(0, 200),
+          occurredAtIso: now.toISOString(),
+          sourceMessage: payload.text
+        });
+        const categoryLabel = decorateCategory(intent.category!);
+        const outText = `Anotado! ✅ ${centsToBrl(intent.amountCents!)} em ${categoryLabel}.`;
+        await logConversation(customer.id, 'outbound', outText, { intent: intent.type, autoInformal: true });
+        return {
+          replyText: outText,
+          responseBody: { ok: true, to: payload.from, replyText: outText }
+        };
+      }
+
       const pastDateHintEarly = getPastDateRegistrationHint(payload.text);
       if (pastDateHintEarly) {
         const outText = [
@@ -6496,18 +5549,32 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
     const firstName = customer.name?.trim().split(/\s+/)[0] ?? 'Felipe';
     const monthName = new Date(intent.year, intent.month - 1).toLocaleDateString('pt-BR', { month: 'long' });
 
+    const lastOutbound = await getLastOutboundMessage(customer.id);
+    const isSameRequest = lastOutbound && normalizeReplyForComparison(lastOutbound).startsWith(
+      normalizeReplyForComparison(`📊 *${firstName}, seus gastos em ${monthName}`)
+    );
+
+    // Se já mostrou este resumo, adiciona perspectiva diferente na segunda chamada
+    const closingLine = isSameRequest
+      ? (decisionLines.length > 0 ? '' : 'Quer que eu sugira algum corte específico nessas categorias?')
+      : (net < 0 ? 'Quer que eu te ajude a cortar alguma categoria?' : 'Saldo positivo, bom trabalho! 😄');
+
+    const openingLine = isSameRequest
+      ? `📊 *Resumo de ${monthName} — ${centsToBrl(summary.totalExpenseCents)} gastos:*`
+      : `📊 *${firstName}, seus gastos em ${monthName} — ${centsToBrl(summary.totalExpenseCents)}:*`;
+
     const outText = [
-      `📊 *${firstName}, seus gastos em ${monthName} — ${centsToBrl(summary.totalExpenseCents)}:*`,
+      openingLine,
       '',
       categoryBlock,
       '',
       summary.totalIncomeCents > 0
         ? `💰 Receitas: ${centsToBrl(summary.totalIncomeCents)} | Saldo: ${centsToBrl(net)}`
         : '⚠️ Nenhuma receita registrada ainda este mês.',
-      net < 0 ? 'No ritmo atual pode faltar dinheiro no fim do mês. Quer que eu te ajude a cortar alguma categoria?' : 'Saldo positivo, bom trabalho! 😄',
+      closingLine,
       ...decisionLines,
       ...(!isOwnerMode ? [decisionQuestionByPlan(currentPlanCode)] : [])
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 
     await logConversation(customer.id, 'outbound', outText, { intent: intent.type });
     return {
@@ -6652,6 +5719,20 @@ async function processInboundMessage(payload: InboundPayload): Promise<{
 }
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
+  // Capture raw body bytes so the POST handler can verify the Meta HMAC-SHA256 signature.
+  app.addHook('preParsing', async (request, _reply, payload) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of payload as AsyncIterable<Buffer>) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+    const raw = Buffer.concat(chunks);
+    (request as unknown as Record<string, unknown>).rawBody = raw;
+    const stream = new Readable();
+    stream.push(raw);
+    stream.push(null);
+    return stream;
+  });
+
   app.get('/webhooks/whatsapp', async (request, reply) => {
     const query = request.query as Record<string, unknown> & {
       hub?: { mode?: string; challenge?: string; verify_token?: string };
@@ -6686,6 +5767,30 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/webhooks/whatsapp', async (request, reply) => {
+    if (config.whatsappAppSecret) {
+      const sigHeader = (request.headers['x-hub-signature-256'] as string | undefined) ?? '';
+      const rawBody = (request as unknown as Record<string, unknown>).rawBody as Buffer | undefined;
+      if (!rawBody) {
+        request.log.error('whatsapp_webhook_hmac_rawbody_missing');
+        return reply.status(403).send({ error: 'invalid_signature' });
+      }
+      const expected = `sha256=${createHmac('sha256', config.whatsappAppSecret).update(rawBody).digest('hex')}`;
+      let match = false;
+      try {
+        match =
+          Buffer.byteLength(sigHeader) === Buffer.byteLength(expected) &&
+          timingSafeEqual(Buffer.from(sigHeader), Buffer.from(expected));
+      } catch {
+        match = false;
+      }
+      if (!match) {
+        return reply.status(403).send({ error: 'invalid_signature' });
+      }
+    } else {
+      request.log.error('whatsapp_webhook_hmac_disabled — WHATSAPP_APP_SECRET is required in production');
+      return reply.status(403).send({ error: 'hmac_verification_not_configured' });
+    }
+
     const directPayload = inboundSchema.safeParse(request.body);
     const metaPayload = directPayload.success ? null : extractMetaWebhookPayload(request.body);
     const metaStatus = directPayload.success ? null : extractMetaStatusPayload(request.body);
@@ -6721,6 +5826,14 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         return { ok: true, ignored: true, reason: 'delivery_status', metaStatus };
       }
       return { ok: true, ignored: true, reason: 'no_user_message' };
+    }
+
+    // Idempotência: ignorar mensagens já processadas (Meta reenvia em caso de timeout)
+    if (payload.messageId) {
+      const isNew = await claimWebhookMessage(payload.messageId);
+      if (!isNew) {
+        return { ok: true, ignored: true, reason: 'duplicate_message_id' };
+      }
     }
 
     const processed = await processInboundMessage(payload);

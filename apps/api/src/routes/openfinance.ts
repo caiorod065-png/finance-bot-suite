@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'crypto';
 import { config } from '../config.js';
+import { getAdminSessionFromRequest } from '../services/admin-auth.js';
 import {
   createConnectToken,
   deleteItem,
@@ -26,6 +27,16 @@ const PLUGGY_CONNECT_URL = 'https://connect.pluggy.ai';
 
 // Armazena tokens temporários em memória: { id -> { connectToken, expiresAt } }
 const connectRedirects = new Map<string, { connectToken: string; expiresAt: number }>();
+
+function safeCompare(a: string, b: string): boolean {
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+function requireAdminAuth(headers: Record<string, unknown>): boolean {
+  return Boolean(getAdminSessionFromRequest(headers));
+}
 
 function amountToCents(amount: number): number {
   return Math.round(Math.abs(amount) * 100);
@@ -79,6 +90,9 @@ export async function openFinanceRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { phone: string; webhookUrl?: string } }>(
     '/openfinance/connect',
     async (request, reply) => {
+      if (!requireAdminAuth(request.headers as Record<string, unknown>)) {
+        return reply.status(401).send({ error: 'unauthorized' });
+      }
       if (!isPluggyConfigured()) {
         return reply.status(503).send({ error: 'Open Finance não configurado no servidor.' });
       }
@@ -122,6 +136,9 @@ export async function openFinanceRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { phone: string } }>(
     '/openfinance/status/:phone',
     async (request, reply) => {
+      if (!requireAdminAuth(request.headers as Record<string, unknown>)) {
+        return reply.status(401).send({ error: 'unauthorized' });
+      }
       const customer = await findCustomerByWhatsappLoose(request.params.phone);
       if (!customer) return reply.status(404).send({ error: 'Cliente não encontrado.' });
 
@@ -140,6 +157,9 @@ export async function openFinanceRoutes(app: FastifyInstance): Promise<void> {
   app.delete<{ Body: { phone: string } }>(
     '/openfinance/disconnect',
     async (request, reply) => {
+      if (!requireAdminAuth(request.headers as Record<string, unknown>)) {
+        return reply.status(401).send({ error: 'unauthorized' });
+      }
       const { phone } = request.body ?? {};
       if (!phone) return reply.status(400).send({ error: 'phone obrigatório' });
 
@@ -168,7 +188,7 @@ export async function openFinanceRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       if (config.pluggyWebhookSecret) {
         const signature = request.headers['x-pluggy-signature'] as string | undefined;
-        if (signature !== config.pluggyWebhookSecret) {
+        if (!signature || !safeCompare(signature, config.pluggyWebhookSecret)) {
           return reply.status(401).send({ error: 'unauthorized' });
         }
       }

@@ -41,12 +41,14 @@ function twilioAuthHeader(accountSid: string, authToken: string): string {
 
 function resolveOutboundStrategy(params: {
   hasTemplateSid: boolean;
+  hasMetaTemplate: boolean;
   outsideConversationWindow: boolean | null;
   templateOutside24hEnabled: boolean;
-}): 'template_first' | 'freeform_first' {
-  if (!params.hasTemplateSid) return 'freeform_first';
+}): 'meta_template_first' | 'twilio_template_first' | 'freeform_first' {
   if (!params.templateOutside24hEnabled) return 'freeform_first';
-  if (params.outsideConversationWindow === true) return 'template_first';
+  if (params.outsideConversationWindow !== true) return 'freeform_first';
+  if (params.hasMetaTemplate) return 'meta_template_first';
+  if (params.hasTemplateSid) return 'twilio_template_first';
   return 'freeform_first';
 }
 
@@ -72,6 +74,45 @@ async function fetchTwilioMessageStatus(params: {
     status: body?.status,
     errorCode: body?.error_code ?? null
   };
+}
+
+async function sendViaMetaTemplate(to: string, templateBody: string): Promise<boolean> {
+  if (!config.whatsappToken || !config.whatsappPhoneNumberId) return false;
+  if (!config.metaWhatsappTemplateName) return false;
+
+  const response = await fetch(`https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.whatsappToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to: digitsOnly(to),
+      type: 'template',
+      template: {
+        name: config.metaWhatsappTemplateName,
+        language: { code: 'pt_BR' },
+        components: [
+          {
+            type: 'body',
+            parameters: [{ type: 'text', text: templateBody.slice(0, 950) }]
+          }
+        ]
+      }
+    })
+  });
+
+  const bodyText = await response.text().catch(() => '');
+  let parsed: any = null;
+  try { parsed = bodyText ? JSON.parse(bodyText) : null; } catch { parsed = null; }
+
+  if (!response.ok || parsed?.error) {
+    const msg = parsed?.error?.message ?? bodyText ?? `Meta template API ${response.status}`;
+    throw new Error(`Meta template error: ${msg}`);
+  }
+
+  return true;
 }
 
 async function sendViaMetaCloud(to: string, message: string): Promise<boolean> {
@@ -265,64 +306,86 @@ async function isOutsideConversationWindow(to: string): Promise<boolean | null> 
 export async function sendWhatsAppText(params: {
   to: string;
   message: string;
-}): Promise<{ sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template'; error?: string }> {
+}): Promise<{ sent: boolean; provider?: 'meta' | 'meta-template' | 'twilio' | 'twilio-template'; error?: string }> {
   let lastError: string | undefined;
   const hasTemplateSid = Boolean(config.twilioWhatsappTemplateSid);
+  const hasMetaTemplate = Boolean(config.whatsappToken && config.metaWhatsappTemplateName);
   const outsideWindow = await isOutsideConversationWindow(params.to);
 
-  // Avoid hammering Twilio with freeform messages to out-of-window customers when no
-  // template is configured — these always fail with error 63015 and can trigger rate limits.
-  if (outsideWindow === true && !hasTemplateSid && !config.whatsappToken) {
+  if (outsideWindow === true && !hasMetaTemplate && !hasTemplateSid) {
     return { sent: false, error: 'customer_outside_window_no_template' };
   }
 
   const strategy = resolveOutboundStrategy({
     hasTemplateSid,
+    hasMetaTemplate,
     outsideConversationWindow: outsideWindow,
     templateOutside24hEnabled: config.twilioTemplateOutside24hEnabled
   });
 
-  if (strategy === 'template_first') {
+  // — Fora da janela: Meta template é o canal primário —
+  if (strategy === 'meta_template_first') {
     try {
-      const viaTwilioTemplate = await sendViaTwilioTemplate(params.to, params.message);
-      if (viaTwilioTemplate) {
-        return { sent: true, provider: 'twilio-template' };
-      }
+      await sendViaMetaTemplate(params.to, params.message);
+      return { sent: true, provider: 'meta-template' };
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Falha ao enviar template via Twilio';
+      lastError = error instanceof Error ? error.message : 'Falha ao enviar meta-template';
     }
+    // fallback para Twilio template se Meta falhar
+    if (hasTemplateSid) {
+      try {
+        await sendViaTwilioTemplate(params.to, params.message);
+        return { sent: true, provider: 'twilio-template' };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+    }
+    return { sent: false, error: lastError ?? 'Falha em todos os canais de template' };
   }
 
-  // Twilio é o canal primário. Meta só entra como fallback se Twilio falhar,
-  // e apenas quando a janela está aberta (Meta dá HTTP 200 falso fora da janela).
-  try {
-    const viaTwilio = await sendViaTwilio(params.to, params.message);
-    if (viaTwilio) {
-      return { sent: true, provider: 'twilio' };
+  // — Fora da janela: Twilio template (sem Meta configurado) —
+  if (strategy === 'twilio_template_first') {
+    try {
+      await sendViaTwilioTemplate(params.to, params.message);
+      return { sent: true, provider: 'twilio-template' };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Falha ao enviar twilio-template';
     }
+    return { sent: false, error: lastError ?? 'Falha ao enviar template Twilio' };
+  }
+
+  // — Dentro da janela (freeform_first): Twilio → Meta —
+  try {
+    await sendViaTwilio(params.to, params.message);
+    return { sent: true, provider: 'twilio' };
   } catch (error) {
     lastError = error instanceof Error ? error.message : 'Falha ao enviar via Twilio';
-    if (hasTemplateSid && outsideWindowLikely(lastError)) {
-      try {
-        const viaTwilioTemplate = await sendViaTwilioTemplate(params.to, params.message);
-        if (viaTwilioTemplate) {
-          return { sent: true, provider: 'twilio-template' };
+    // Se Twilio indicar janela fechada, tenta template imediatamente
+    if (outsideWindowLikely(lastError)) {
+      if (hasMetaTemplate) {
+        try {
+          await sendViaMetaTemplate(params.to, params.message);
+          return { sent: true, provider: 'meta-template' };
+        } catch (templateError) {
+          lastError = templateError instanceof Error ? templateError.message : lastError;
         }
-      } catch (templateError) {
-        lastError = templateError instanceof Error ? templateError.message : lastError;
+      }
+      if (hasTemplateSid) {
+        try {
+          await sendViaTwilioTemplate(params.to, params.message);
+          return { sent: true, provider: 'twilio-template' };
+        } catch (templateError) {
+          lastError = templateError instanceof Error ? templateError.message : lastError;
+        }
       }
     }
   }
 
-  if (outsideWindow !== true) {
-    try {
-      const viaMeta = await sendViaMetaCloud(params.to, params.message);
-      if (viaMeta) {
-        return { sent: true, provider: 'meta' };
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Falha ao enviar via Meta';
-    }
+  try {
+    await sendViaMetaCloud(params.to, params.message);
+    return { sent: true, provider: 'meta' };
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : 'Falha ao enviar via Meta';
   }
 
   return {
@@ -338,7 +401,7 @@ export async function sendPaymentThanksMessage(params: {
   planName?: string | null;
   planFeatures?: string[];
   familyInviteCodes?: string[];
-}): Promise<{ sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' }> {
+}): Promise<{ sent: boolean; provider?: 'meta' | 'meta-template' | 'twilio' | 'twilio-template' }> {
   const firstName = params.customerName?.trim().split(/\s+/)[0] ?? 'cliente';
   const planLabel = params.planName ? `plano ${params.planName}` : 'seu plano';
 
@@ -419,7 +482,7 @@ export async function sendWelcomeActivationMessage(params: {
   customerName?: string | null;
   planCode: string;
   familyInviteCodes?: string[];
-}): Promise<{ sent: boolean; provider?: 'meta' | 'twilio' | 'twilio-template' }> {
+}): Promise<{ sent: boolean; provider?: 'meta' | 'meta-template' | 'twilio' | 'twilio-template' }> {
   const firstName = params.customerName?.trim().split(/\s+/)[0] ?? 'cliente';
   const buildMessage = WELCOME_MESSAGES[params.planCode] ?? WELCOME_MESSAGES['essential'];
   const lines = [buildMessage(firstName)];
@@ -440,5 +503,5 @@ export async function sendWelcomeActivationMessage(params: {
 
 export const __whatsappOutboundTestables = {
   outsideWindowLikely,
-  resolveOutboundStrategy
+  resolveOutboundStrategy,
 };

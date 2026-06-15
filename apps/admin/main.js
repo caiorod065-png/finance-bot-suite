@@ -302,6 +302,13 @@ function isInactive7d(customer) {
   return daysSince(customer.lastInboundAt) >= 7;
 }
 
+function makeSmallRow(label, value = '') {
+  const d = document.createElement('div');
+  d.className = 'small';
+  d.textContent = `${label}${value}`;
+  return d;
+}
+
 function setNotice(message, type = 'success') {
   if (!message) {
     els.notice.textContent = '';
@@ -391,25 +398,34 @@ function renderCustomers() {
     const isSelected = state.selectedCustomerId === customer.id;
     const div = document.createElement('div');
     div.className = `item ${isSelected ? 'is-selected' : ''}`;
-    div.innerHTML = `
-      <strong>${customer.name || 'Sem nome'}</strong>
-      <span class="badge ${badgeClass(customer.subscriptionStatus)}">${statusLabel(customer.subscriptionStatus)}</span>
-      <div class="small">WhatsApp: ${customer.whatsappNumber}</div>
-      <div class="small">Plano: ${customer.planName}</div>
-      <div class="small">Mensal atual: ${brl(customer.effectiveMonthlyFeeCents)}</div>
-      <div class="small">Vencimento: ${formatDateOnly(customer.nextDueDate)}</div>
-      <div class="small">Teste: ${customer.trialActive ? `ativo até ${formatDateOnly(customer.trialEndDate)} (${customer.trialDaysLeft}d)` : 'inativo'}</div>
-      <div class="small">Indicações: ${customer.referralCount}</div>
-      <div class="small">Última interação: ${formatDate(customer.lastInboundAt)}</div>
-      <button data-id="${customer.id}" class="ghost">Gerenciar cliente</button>
-    `;
 
-    div.querySelector('button').addEventListener('click', () => {
+    const strong = document.createElement('strong');
+    strong.textContent = customer.name || 'Sem nome';
+    div.appendChild(strong);
+
+    const badge = document.createElement('span');
+    badge.className = `badge ${badgeClass(customer.subscriptionStatus)}`;
+    badge.textContent = statusLabel(customer.subscriptionStatus);
+    div.appendChild(badge);
+
+    div.appendChild(makeSmallRow('WhatsApp: ', customer.whatsappNumber));
+    div.appendChild(makeSmallRow('Plano: ', customer.planName));
+    div.appendChild(makeSmallRow('Mensal atual: ', brl(customer.effectiveMonthlyFeeCents)));
+    div.appendChild(makeSmallRow('Vencimento: ', formatDateOnly(customer.nextDueDate)));
+    div.appendChild(makeSmallRow('Teste: ', customer.trialActive ? `ativo até ${formatDateOnly(customer.trialEndDate)} (${customer.trialDaysLeft}d)` : 'inativo'));
+    div.appendChild(makeSmallRow('Indicações: ', String(customer.referralCount)));
+    div.appendChild(makeSmallRow('Última interação: ', formatDate(customer.lastInboundAt)));
+
+    const btn = document.createElement('button');
+    btn.className = 'ghost';
+    btn.textContent = 'Gerenciar cliente';
+    btn.addEventListener('click', () => {
       selectCustomer(customer.id).catch((error) => {
         console.error(error);
         setNotice(`Falha ao carregar cliente: ${error.message}`, 'error');
       });
     });
+    div.appendChild(btn);
 
     els.customers.appendChild(div);
   });
@@ -425,15 +441,22 @@ function renderPayments() {
   state.payments.forEach((payment) => {
     const div = document.createElement('div');
     div.className = 'item';
-    div.innerHTML = `
-      <strong>${payment.customerName || 'Sem nome'} (${payment.whatsappNumber})</strong>
-      <span class="badge ${badgeClass(payment.status)}">${statusLabel(payment.status)}</span>
-      <div class="small">Tipo: ${payment.paymentType} | Gateway: ${payment.gateway}</div>
-      <div class="small">Valor: ${brl(payment.amountCents)}</div>
-      <div class="small">Vencimento: ${formatDateOnly(payment.dueDate)}</div>
-      <div class="small">Pago em: ${formatDate(payment.paidAt)}</div>
-      <div class="small">Ref: ${payment.externalReference || '---'}</div>
-    `;
+
+    const strong = document.createElement('strong');
+    strong.textContent = `${payment.customerName || 'Sem nome'} (${payment.whatsappNumber})`;
+    div.appendChild(strong);
+
+    const badge = document.createElement('span');
+    badge.className = `badge ${badgeClass(payment.status)}`;
+    badge.textContent = statusLabel(payment.status);
+    div.appendChild(badge);
+
+    div.appendChild(makeSmallRow(`Tipo: ${payment.paymentType} | Gateway: ${payment.gateway}`));
+    div.appendChild(makeSmallRow(`Valor: ${brl(payment.amountCents)}`));
+    div.appendChild(makeSmallRow(`Vencimento: ${formatDateOnly(payment.dueDate)}`));
+    div.appendChild(makeSmallRow(`Pago em: ${formatDate(payment.paidAt)}`));
+    div.appendChild(makeSmallRow(`Ref: ${payment.externalReference || '---'}`));
+
     els.payments.appendChild(div);
   });
 }
@@ -956,12 +979,15 @@ async function loadCustomerTransactions(customerId) {
   transactions.forEach((tx) => {
     const div = document.createElement('div');
     div.className = 'item';
-    div.innerHTML = `
-      <strong>${tx.kind === 'expense' ? 'Despesa' : 'Receita'} ${brl(tx.amountCents)}</strong>
-      <div class="small">${tx.category}</div>
-      <div class="small">${tx.description || ''}</div>
-      <div class="small">${new Date(tx.occurredAt).toLocaleString('pt-BR')}</div>
-    `;
+
+    const strong = document.createElement('strong');
+    strong.textContent = `${tx.kind === 'expense' ? 'Despesa' : 'Receita'} ${brl(tx.amountCents)}`;
+    div.appendChild(strong);
+
+    div.appendChild(makeSmallRow(tx.category));
+    div.appendChild(makeSmallRow(tx.description || ''));
+    div.appendChild(makeSmallRow(new Date(tx.occurredAt).toLocaleString('pt-BR')));
+
     els.transactions.appendChild(div);
   });
 }
@@ -977,21 +1003,29 @@ async function loadCustomerSummary(customerId) {
   const used = Number(sub.messagesUsedThisMonth || 0);
   const remaining = monthlyLimit > 0 ? Math.max(monthlyLimit - used, 0) : 0;
 
-  els.selectedCustomer.innerHTML = `
-    <strong>Status: <span class="badge ${badgeClass(sub.status)}">${statusLabel(sub.status)}</span></strong>
-    <div class="small">Plano: ${sub.planName || sub.planCode || '---'}</div>
-    <div class="small">Mensagens/mês: ${used}/${monthlyLimit} (restantes: ${remaining})</div>
-    <div class="small">Recursos do plano: ${features}</div>
-    <div class="small">Entrada paga: ${sub.hasPaidSetup ? 'sim' : 'não'}</div>
-    <div class="small">Teste: ${sub.trialActive ? `ativo até ${formatDateOnly(sub.trialEndDate)} (${sub.trialDaysLeft}d)` : 'inativo'}</div>
-    <div class="small">Entrada: ${brl(sub.setupFeeCents)}</div>
-    <div class="small">Mensal base: ${brl(sub.baseMonthlyFeeCents)}</div>
-    <div class="small">Mensal c/ desconto: ${brl(sub.discountedMonthlyFeeCents)}</div>
-    <div class="small">Mensal atual: ${brl(sub.effectiveMonthlyFeeCents)}</div>
-    <div class="small">Indicações: ${sub.referralCount} (meta ${sub.referralThreshold})</div>
-    <div class="small">Vencimento: ${formatDateOnly(sub.nextDueDate)}</div>
-    <div class="small">Último pagamento: ${formatDateOnly(sub.lastPaymentDate)}</div>
-  `;
+  const container = els.selectedCustomer;
+  container.innerHTML = '';
+
+  const statusStrong = document.createElement('strong');
+  statusStrong.textContent = 'Status: ';
+  const statusBadge = document.createElement('span');
+  statusBadge.className = `badge ${badgeClass(sub.status)}`;
+  statusBadge.textContent = statusLabel(sub.status);
+  statusStrong.appendChild(statusBadge);
+  container.appendChild(statusStrong);
+
+  container.appendChild(makeSmallRow('Plano: ', sub.planName || sub.planCode || '---'));
+  container.appendChild(makeSmallRow('Mensagens/mês: ', `${used}/${monthlyLimit} (restantes: ${remaining})`));
+  container.appendChild(makeSmallRow('Recursos do plano: ', features));
+  container.appendChild(makeSmallRow('Entrada paga: ', sub.hasPaidSetup ? 'sim' : 'não'));
+  container.appendChild(makeSmallRow('Teste: ', sub.trialActive ? `ativo até ${formatDateOnly(sub.trialEndDate)} (${sub.trialDaysLeft}d)` : 'inativo'));
+  container.appendChild(makeSmallRow('Entrada: ', brl(sub.setupFeeCents)));
+  container.appendChild(makeSmallRow('Mensal base: ', brl(sub.baseMonthlyFeeCents)));
+  container.appendChild(makeSmallRow('Mensal c/ desconto: ', brl(sub.discountedMonthlyFeeCents)));
+  container.appendChild(makeSmallRow('Mensal atual: ', brl(sub.effectiveMonthlyFeeCents)));
+  container.appendChild(makeSmallRow('Indicações: ', `${sub.referralCount} (meta ${sub.referralThreshold})`));
+  container.appendChild(makeSmallRow('Vencimento: ', formatDateOnly(sub.nextDueDate)));
+  container.appendChild(makeSmallRow('Último pagamento: ', formatDateOnly(sub.lastPaymentDate)));
 }
 
 async function selectCustomer(customerId) {

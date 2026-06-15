@@ -328,18 +328,158 @@ function parseRelativeOccurredAt(text: string, now: Date): string | null {
 
 export function inferCategory(text: string): string {
   const lower = normalizePtText(text);
-  if (lower.includes('mercado') || lower.includes('supermercado')) return 'mercado';
+  if (lower.includes('mercado') || lower.includes('supermercado') || lower.includes('feira') || lower.includes('hortifrut')) return 'mercado';
   if (lower.includes('shopping')) return 'shopping';
-  if (lower.includes('manicure') || lower.includes('salao') || lower.includes('cabelel') || lower.includes('barbear') || lower.includes('barbearia') || lower.includes('estetica') || lower.includes('spa')) return 'beleza';
+  if (lower.includes('manicure') || lower.includes('salao') || lower.includes('cabelel') || lower.includes('barbear') || lower.includes('barbearia') || lower.includes('estetica') || lower.includes('spa') || lower.includes('depilacao') || lower.includes('micropigment')) return 'beleza';
   if (
     lower.includes('transporte') ||
     lower.includes('uber') ||
+    lower.includes('99pop') ||
+    lower.includes('taxi') ||
+    lower.includes('táxi') ||
     lower.includes('gasolina') ||
+    lower.includes('combustivel') ||
     lower.includes('combust') ||
     lower.includes('onibus') ||
-    lower.includes('passagem')
+    lower.includes('metro') ||
+    lower.includes('metrô') ||
+    lower.includes('passagem') ||
+    lower.includes('pedagio') ||
+    lower.includes('pedágio') ||
+    lower.includes('estacionamento') ||
+    lower.includes('grabasic') ||
+    lower.includes('etanol')
   ) return 'transporte';
-  if (lower.includes('aluguel') || lower.includes('condom')) return 'moradia';
+  if (
+    lower.includes('aluguel') ||
+    lower.includes('condom') ||
+    lower.includes('reforma') ||
+    lower.includes('obra') ||
+    lower.includes('construca') ||
+    lower.includes('pintura') ||
+    lower.includes('eletricist') ||
+    lower.includes('encanament') ||
+    lower.includes('marceneiro') ||
+    lower.includes('marcenaria') ||
+    lower.includes('conserto') ||
+    lower.includes('manutencao') ||
+    lower.includes('manutenção') ||
+    lower.includes('reparo')
+  ) return 'moradia';
+  if (
+    lower.includes('agua ') ||
+    lower.includes('conta de agua') ||
+    lower.includes('conta dagua') ||
+    lower.includes('luz ') ||
+    lower.includes('conta de luz') ||
+    lower.includes('energia eletrica') ||
+    lower.includes('energia elétrica') ||
+    lower.includes('internet') ||
+    lower.includes('telefone') ||
+    lower.includes('celular') ||
+    lower.includes('plano celular') ||
+    lower.includes('gas encanado') ||
+    lower.includes('gás encanado') ||
+    lower.includes('botijao') ||
+    lower.includes('botijão')
+  ) return 'utilidades';
+  if (
+    lower.includes('academia') ||
+    lower.includes('medico') ||
+    lower.includes('médico') ||
+    lower.includes('farmacia') ||
+    lower.includes('farmácia') ||
+    lower.includes('remedio') ||
+    lower.includes('remédio') ||
+    lower.includes('consulta') ||
+    lower.includes('exame') ||
+    lower.includes('clinica') ||
+    lower.includes('clínica') ||
+    lower.includes('plano de saude') ||
+    lower.includes('plano saude') ||
+    lower.includes('hospital') ||
+    lower.includes('drogaria') ||
+    lower.includes('psicolog') ||
+    lower.includes('dentista') ||
+    lower.includes('fisioterapia') ||
+    lower.includes('terapia') ||
+    lower.includes('suplemento') ||
+    lower.includes('vitamina') ||
+    lower.includes('pilates') ||
+    lower.includes('yoga') ||
+    lower.includes('crossfit')
+  ) return 'saude';
+  if (
+    lower.includes('netflix') ||
+    lower.includes('spotify') ||
+    lower.includes('disney') ||
+    lower.includes('hbo') ||
+    lower.includes('prime video') ||
+    lower.includes('youtube premium') ||
+    lower.includes('streaming') ||
+    lower.includes('cinema') ||
+    lower.includes('teatro') ||
+    lower.includes('show ') ||
+    lower.includes('ingresso') ||
+    lower.includes('parque') ||
+    lower.includes('viagem') ||
+    lower.includes('passeio') ||
+    lower.includes('hotel') ||
+    lower.includes('pousada') ||
+    lower.includes('airbnb') ||
+    lower.includes('jogo ') ||
+    lower.includes('game')
+  ) return 'lazer';
+  if (
+    lower.includes('roupa') ||
+    lower.includes('calcado') ||
+    lower.includes('calçado') ||
+    lower.includes('tenis') ||
+    lower.includes('tênis') ||
+    lower.includes('sapato') ||
+    lower.includes('sandalia') ||
+    lower.includes('sandália') ||
+    lower.includes('bolsa') ||
+    lower.includes('vestuario') ||
+    lower.includes('vestido') ||
+    lower.includes('camisa') ||
+    lower.includes('calca') ||
+    lower.includes('calça') ||
+    lower.includes('shorts') ||
+    lower.includes('acessorio') ||
+    lower.includes('acessório') ||
+    lower.includes('relogio') ||
+    lower.includes('relógio') ||
+    lower.includes('oculos') ||
+    lower.includes('óculos')
+  ) return 'vestuario';
+  if (
+    lower.includes('iptu') ||
+    lower.includes('ipva') ||
+    lower.includes('imposto') ||
+    lower.includes('irpf') ||
+    lower.includes('ir ') ||
+    lower.includes('tributac') ||
+    lower.includes('tributaç') ||
+    lower.includes('taxa prefeitura') ||
+    lower.includes('taxa municipal') ||
+    lower.includes('decore') ||
+    lower.includes('simples nacional') ||
+    lower.includes('das ') ||
+    lower.includes('fgts')
+  ) return 'impostos';
+  if (
+    lower.includes('folha de pagamento') ||
+    lower.includes('funcionario') ||
+    lower.includes('funcionário') ||
+    lower.includes('salario ') ||
+    lower.includes('salário ') ||
+    lower.includes('colaborador') ||
+    lower.includes('empregado') ||
+    lower.includes('trabalhista') ||
+    lower.includes('terceiriza') ||
+    lower.includes('prestador')
+  ) return 'pessoal';
   if (
     lower.includes('lanche') ||
     lower.includes('restaurante') ||
@@ -360,9 +500,15 @@ export function inferCategory(text: string): string {
     lower.includes('jantei') ||
     lower.includes('comer') ||
     lower.includes('cafe da manha') ||
-    lower.includes('cafeteria')
+    lower.includes('cafeteria') ||
+    lower.includes('delivery') ||
+    lower.includes('acai') ||
+    lower.includes('açaí') ||
+    lower.includes('sorvete') ||
+    lower.includes('padaria') ||
+    lower.includes('bar ')
   ) return 'alimentacao';
-  if (lower.includes('faculdade') || lower.includes('curso')) return 'educacao';
+  if (lower.includes('faculdade') || lower.includes('curso') || lower.includes('escola') || lower.includes('mensalidade') || lower.includes('universidade') || lower.includes('colegio') || lower.includes('colégio') || lower.includes('aula') || lower.includes('livro') || lower.includes('material escolar')) return 'educacao';
   return 'outros';
 }
 
@@ -430,7 +576,15 @@ function looksLikeExpenseStatement(lower: string, amountCents: number | null): b
   const categoryHint = inferCategory(lower) !== 'outros';
   const prepositionHint = /\b(no|na|em|de)\b/.test(lower);
 
-  return expenseVerbs.test(lower) || (categoryHint && prepositionHint);
+  if (expenseVerbs.test(lower) || (categoryHint && prepositionHint)) return true;
+
+  // Gastos informais curtos: "uber 28", "ifood 45 agora", "30 mercado"
+  // Se o texto é curto, tem categoria clara, tem um valor e não é uma pergunta → registra
+  const wordCount = lower.trim().split(/\s+/).length;
+  const isQuestion = lower.includes('?') || /\b(quanto|qual|quando|como|por que|será|será que)\b/.test(lower);
+  if (wordCount <= 5 && categoryHint && !isQuestion) return true;
+
+  return false;
 }
 
 function hasExplicitTransactionalSignal(normalized: string): boolean {
@@ -1221,80 +1375,136 @@ function fallbackSupportReply(params: {
   const firstName = params.customerName?.trim().split(/\s+/)[0] || 'você';
   const replyMode = params.replyMode ?? 'default';
 
+  function pickVariant<T>(arr: T[], seed: string): T {
+    let h = 0;
+    for (const c of seed) h = ((h << 5) - h + c.charCodeAt(0)) | 0;
+    return arr[Math.abs(h) % arr.length];
+  }
+  const seed = normalized.slice(0, 30) + firstName;
+
   if (replyMode === 'owner') {
     if (hasSleepFarewellSignal(normalized)) {
-      return [
-        `Boa noite, ${firstName}.`,
-        'Fecho por aqui e seguimos amanhã.',
-        'Se quiser, já deixo um resumo operacional pronto para o próximo horário.'
-      ].join('\n');
+      return [`Boa noite, ${firstName}.`, 'Fecho por aqui e seguimos amanhã.'].join('\n');
     }
-
     if (hasHowToUseSignal(normalized)) {
-      return [
-        `Perfeito, ${firstName}.`,
-        'Comandos úteis: "gastos de hoje", "resumo do mês", "limite semanal 800", "status +55...".',
-        'Me diga a consulta exata e eu respondo de forma objetiva.'
-      ].join('\n');
+      return [`Perfeito, ${firstName}.`, 'Comandos úteis: "gastos de hoje", "resumo do mês", "limite semanal 800", "status +55...".', 'Me diga a consulta exata e eu respondo de forma objetiva.'].join('\n');
     }
-
     if (hasSocialConversationSignal(normalized)) {
-      return [
-        `Tudo certo por aqui, ${firstName}.`,
-        'Se quiser, já me passe a consulta financeira que eu respondo direto.'
-      ].join('\n');
+      return [`Tudo certo por aqui, ${firstName}.`, 'Se quiser, já me passe a consulta financeira que eu respondo direto.'].join('\n');
     }
-
     if (/\b(plano|preco|preço|upgrade)\b/.test(normalized)) {
-      return [
-        `Hoje você está no plano ${params.planName || 'atual'}.`,
-        'Se me disser seu uso médio, eu comparo a melhor opção sem rodeio.'
-      ].join('\n');
+      return [`Hoje você está no plano ${params.planName || 'atual'}.`, 'Se me disser seu uso médio, eu comparo a melhor opção sem rodeio.'].join('\n');
     }
-
-    return [
-      `${firstName}, para eu responder com precisão, me diga a consulta em uma frase.`,
-      'Exemplo: "resumo do mês", "gastos de hoje", "status +55...".'
-    ].join('\n');
+    return [`${firstName}, para eu responder com precisão, me diga a consulta em uma frase.`, 'Exemplo: "resumo do mês", "gastos de hoje", "status +55...".'].join('\n');
   }
 
+  // Frustration / anger
+  if (/\b(absurdo|ridiculo|ridicul|me irritei|que raiva|pessimo|pessima|horrivel|nao funciona|não funciona|ta errado|tá errado|errou|dinheiro sumiu|cadê|cade meu)\b/.test(normalized)) {
+    return pickVariant([
+      `Entendo a frustração. Me conta o que aconteceu com mais detalhe e eu resolvo agora.`,
+      `Opa, aconteceu algo errado? Me diz exatamente o que foi pra eu corrigir direto.`,
+      `Faz sentido você estar insatisfeito. Qual foi o problema? Vou resolver ponto a ponto.`
+    ], seed);
+  }
+
+  // Identity question
+  if (/\b(voce e ia|você é ia|e um bot|é um bot|robo|robô|humana|inteligencia artificial|sou falando com|quem e voce|quem é você|quem criou|ia\?)\b/.test(normalized)) {
+    return pickVariant([
+      `Sou a Iara, assistente financeira criada pelo Felipe Grigoletti Guarde. Sou uma IA, mas fui feita pra conversar de forma humana e resolver suas finanças de verdade. O que você precisa?`,
+      `Boa pergunta! Sou a Iara — uma IA especialista em finanças pessoais. Fui idealizada pelo Felipe Guarde pra ser uma assistente de verdade, não um robô de menu. O que posso fazer por você?`,
+      `Sou a Iara, uma assistente financeira digital. IA sim, mas converso como gente e não te deixo na mão. O que você quer resolver?`
+    ], seed);
+  }
+
+  // Cancellation intent
+  if (/\b(cancelar|cancela|cancelamento|quero sair|nao quero mais|não quero mais|desativar|encerrar conta|encerrar plano)\b/.test(normalized)) {
+    return pickVariant([
+      `Sinto ouvir isso. Antes de cancelar, me conta o que não está funcionando? Posso tentar resolver.`,
+      `Entendo. Se quiser cancelar, pode falar com nosso suporte. Mas me conta o que aconteceu — quero ver se dá pra resolver antes.`
+    ], seed);
+  }
+
+  // Goal/savings intent (natural language without "meta" keyword)
+  if (/\b(guardar|economizar|poupar|juntar|separar)\s+\d/.test(normalized) || /\b(quero\s+(?:guardar|economizar|poupar|juntar)|quero\s+(?:uma?\s+)?reserva)\b/.test(normalized)) {
+    return pickVariant([
+      `Boa, ${firstName}! Posso criar uma meta pra isso. Me diz: quanto você quer guardar e pra quando?\nExemplo: "quero guardar 1000 para viagem até 31/12".`,
+      `Adorei o objetivo! Me manda o valor e o prazo que eu crio a meta agora.\nExemplo: "quero poupar 500 para fundo de emergência até junho".`
+    ], seed);
+  }
+
+  // Investment question
+  if (/\b(investimento|investir|rendimento|render|aplicacao|aplicação|cdb|tesouro|poupanca|poupança|acoes|ações|fundo de investimento)\b/.test(normalized)) {
+    return pickVariant([
+      `Posso simular investimento por aporte mensal pra você! Me diz: quanto pretende investir por mês, por quantos meses e qual o rendimento anual esperado.`,
+      `Boa área pra pensar! Tenho um simulador: me diz valor mensal, prazo e taxa esperada que eu te mostro a projeção de quanto acumula.`
+    ], seed);
+  }
+
+  // Debt / financial coaching
+  if (/\b(divida|dívida|devendo|devo|emprestimo|empréstimo|parcelado|parcela|juros|negociar|negativado|nome sujo)\b/.test(normalized)) {
+    return pickVariant([
+      `Dívidas são o que eu ajudo a organizar melhor. Me conta mais: você quer registrar a dívida, ver quanto paga de juros, ou montar um plano de quitação?`,
+      `Entendo a situação. Posso te ajudar a organizar: me conta o valor que você deve e eu te dou uma visão clara do impacto no seu mês.`
+    ], seed);
+  }
+
+  // Trust / security question
+  if (/\b(seguro|segura|privacidade|meus dados|vazamento|hack|confiavel|confiável|confio|confiar|minha senha|minha conta)\b/.test(normalized)) {
+    return pickVariant([
+      `Seus dados ficam em banco de dados criptografado e nada é compartilhado com terceiros. Eu só acesso o que você me manda aqui no WhatsApp. Pode confiar!`,
+      `Boa pergunta sobre segurança. Seus dados são protegidos e nunca vendidos. Não acesso sua conta bancária — só registro o que você me conta aqui no WhatsApp.`
+    ], seed);
+  }
+
+  // Competitor comparison
+  if (/\b(pierre|jota|magie|meu assessor|financinha|zapgastos|zap gastos|concorrente|outro app|outra opcao|outra opção|mais barato|vale a pena)\b/.test(normalized)) {
+    return pickVariant([
+      `Conheço bem as outras opções do mercado. O diferencial da Iara é ser uma assistente conversacional completa — registro, análise, metas, lembretes e alertas proativos, tudo no WhatsApp. Me conta o que você mais usa e eu comparo com o que faz sentido pra você.`,
+      `Entendo a comparação! A Iara vai além do controle de gastos — ela te avisa antes do problema acontecer, cria metas e acompanha seu progresso. Me conta o que você usa hoje e eu explico onde a diferença aparece na prática.`
+    ], seed);
+  }
+
+  // Sleep / farewell
   if (hasSleepFarewellSignal(normalized)) {
-    return [
-      `Boa noite, ${firstName}. Descansa bem 😴`,
-      'Amanhã eu te chamo para organizar seus gastos com calma.',
-      'Mais ou menos que horário você prefere que eu te lembre?'
-    ].join('\n');
+    return pickVariant([
+      `Boa noite, ${firstName}! Descansa bem 😴\nAmanhã a gente continua organizando suas finanças.`,
+      `Boa noite! Tô por aqui quando precisar. Até mais, ${firstName}!`,
+      `Fechando por hoje. Boa noite, ${firstName}! Qualquer coisa é só mandar mensagem.`
+    ], seed);
   }
 
+  // How to use
   if (hasHowToUseSignal(normalized)) {
-    return [
-      `Perfeito, ${firstName}. Você já pode me mandar gasto do jeito que fala no dia a dia.`,
-      'Exemplo: "hoje gastei 35 no mercado" ou "ontem paguei 18 de transporte".',
-      'Se quiser, manda um agora e eu já te devolvo com análise objetiva.'
-    ].join('\n');
+    return pickVariant([
+      `Fácil de usar! Manda mensagem como fala no dia a dia:\n• "hoje gastei 50 no mercado"\n• "resumo do mês"\n• "limite semanal 600"\nQual você quer testar?`,
+      `É bem simples: me conta seus gastos em texto livre e eu registro. Também posso criar metas, lembretes, e dar insights do seu comportamento financeiro. Por onde quer começar?`,
+      `Funciono como uma assistente pessoal: você fala e eu anoto, analiso e te aviso. Me manda um gasto de hoje e vê como funciona!`
+    ], seed);
   }
 
+  // Social conversation / greeting
   if (hasSocialConversationSignal(normalized)) {
-    return [
-      `Tudo certo por aqui, ${firstName} 🙂`,
-      'Bora manter seu controle em dia?',
-      'Você prefere começar anotando um gasto de hoje ou definindo uma meta do mês?'
-    ].join('\n');
+    return pickVariant([
+      `Tudo ótimo, ${firstName}! Pronto pra te ajudar com as finanças. Quer começar anotando um gasto ou vendo como foi o mês?`,
+      `Tô bem, obrigada! E você, como tá o financeiro? Posso puxar o resumo do mês se quiser 😊`,
+      `Aqui tô na ativa! Tem algum gasto pra registrar ou quer ver como tá o saldo do mês?`
+    ], seed);
   }
 
-  if (/\b(plano|preco|preço|upgrade)\b/.test(normalized)) {
-    return [
-      `Posso te explicar os planos em 1 minuto, ${firstName}.`,
-      `Hoje você está no plano ${params.planName || 'atual'}.`,
-      'Se me contar seu volume de uso, eu te digo qual opção faz mais sentido sem você pagar a mais.'
-    ].join('\n');
+  // Plan / price question
+  if (/\b(plano|preco|preço|upgrade|assinar|mensalidade|quanto custa|vale a pena|mudar de plano)\b/.test(normalized)) {
+    return pickVariant([
+      `Posso te explicar os planos em 1 minuto, ${firstName}.\nHoje você está no ${params.planName || 'plano atual'}.\nMe conta como você usa: quantas transações por mês, se tem família, se precisa de insights — aí eu te digo qual encaixa melhor.`,
+      `Os planos vão de R$0 (gratuito) até R$349,90 (Elite). O que mais diferencia é o limite de mensagens e recursos incluídos.\nMe diz seu perfil de uso e eu recomendo o que vale a pena pra você.`
+    ], seed);
   }
 
-  return [
-    `${firstName}, me diz em 1 frase o que você quer resolver agora.`,
-    'Exemplos rápidos: "resumo do mês", "limite semanal 800", "corrigir último gasto".',
-    'Eu te devolvo direto com o próximo passo útil, sem enrolar.'
-  ].join('\n');
+  // Default — varied
+  return pickVariant([
+    `${firstName}, me diz em 1 frase o que você quer resolver agora.\nExemplos: "resumo do mês", "limite semanal 800", "corrigir último gasto".`,
+    `Não entendi bem essa mensagem. Me manda de outro jeito?\nTenta algo como "hoje gastei 40 no uber" ou "quanto gastei esse mês".`,
+    `Hmm, não captei direito. Pode reformular? Exemplos:\n• "gastos de hoje"\n• "resumo do mês"\n• "criar meta 500 para emergência"`
+  ], seed);
 }
 
 function isSupportReplyAlignedWithUserIntent(userText: string, reply: string): boolean {
@@ -1419,6 +1629,7 @@ export async function generateScopedSupportReply(params: {
     '43) Ao comparar com concorrentes, sempre explique por que vale a pena pagar pela Iara no contexto do cliente: destaque ganho prático de tempo, consistência de acompanhamento, prevenção de erros e suporte conversacional contínuo no WhatsApp. Evite resposta genérica.',
     '44) Se o usuário brincar, usar "kk", ironia leve ou falar de cansaço/humor junto de uma tarefa financeira, responda a brincadeira em 1 frase curta e depois execute/continue a tarefa. Não ignore o lado humano da mensagem.',
     '45) Se a mensagem tiver uma pergunta casual e também uma declaração explícita de gasto/receita (ex: "o que recomenda? ontem gastei 45 reais em lanche"), trate a declaração financeira como dado válido quando estiver clara; não peça confirmação só porque existe uma pergunta casual antes.',
+    '46) OBRIGATÓRIO ao responder perguntas de identidade ("você é robô?", "é uma IA?", "é humana?", "quem é você?", "com quem estou falando?"): SEMPRE comece a resposta mencionando o nome "Iara" — ex: "Sou a Iara, assistente financeira..." — nunca responda uma pergunta de identidade sem usar o próprio nome.',
     ...modeInstructions,
     '',
     'Capacidades do bot:',

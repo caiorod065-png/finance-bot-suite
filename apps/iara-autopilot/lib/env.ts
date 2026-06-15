@@ -11,8 +11,8 @@ const envSchema = z.object({
 
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
 
-  CRON_SECRET: z.string().optional(),
-  INTERNAL_API_KEY: z.string().optional(),
+  CRON_SECRET: z.string().min(16),
+  INTERNAL_API_KEY: z.string().min(16),
 
   QUALITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.72),
   CANDIDATE_MIN_IMPROVEMENT: z.coerce.number().min(0).max(1).default(0.06),
@@ -26,7 +26,7 @@ const envSchema = z.object({
   VERCEL_PROJECT_ID: z.string().optional(),
   VERCEL_TEAM_ID: z.string().optional(),
   VERCEL_ENV_TARGET: z.enum(["production", "preview"]).default("production"),
-  VERCEL_DEPLOY_HOOK_URL: z.string().url().optional(),
+  VERCEL_DEPLOY_HOOK_URL: z.preprocess(v => v === '' ? undefined : v, z.string().url().optional()),
 
   VALIDATOR_AGENT_ENDPOINTS: z.string().optional(),
   VALIDATOR_AGENT_BEARER: z.string().optional()

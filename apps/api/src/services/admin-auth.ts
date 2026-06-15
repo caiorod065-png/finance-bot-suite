@@ -80,8 +80,7 @@ function hashPassword(password: string): string {
 function verifyPassword(password: string, storedHash: string): boolean {
   const parsed = parseHash(storedHash);
   if (!parsed) {
-    // fallback para instalações antigas em desenvolvimento
-    return storedHash === password;
+    return false;
   }
 
   const salt = Buffer.from(parsed.saltHex, 'hex');

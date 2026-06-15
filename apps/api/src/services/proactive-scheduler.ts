@@ -1,6 +1,6 @@
 import { config } from '../config.js';
 import { runProactiveAlerts, type ProactiveRunResult } from './proactive-alerts.js';
-import { ensureJardesSchema, runJardesAnalysis } from './jardes-analysis.js';
+import { ensureJardesSchema, runJardesAnalysis, sendDailyDoubtDigest } from './jardes-analysis.js';
 
 type LoggerLike = {
   info: (obj: unknown, msg?: string) => void;
@@ -36,6 +36,7 @@ let intervalHandle: NodeJS.Timeout | null = null;
 let startupHandle: NodeJS.Timeout | null = null;
 let jardesIntervalHandle: NodeJS.Timeout | null = null;
 let jardesStartupHandle: NodeJS.Timeout | null = null;
+let doubtDigestTimeoutHandle: NodeJS.Timeout | null = null;
 
 async function runOneCycle(logger: LoggerLike): Promise<void> {
   if (!state.enabled) return;
@@ -170,6 +171,38 @@ export function startProactiveScheduler(logger: LoggerLike): void {
   }, jardesIntervalMs);
 
   logger.info({ intervalHours: 6, firstDelayMinutes: 3 }, 'Jardes analysis scheduler started');
+
+  // Daily doubt digest: schedule for 22:00 local time (America/Sao_Paulo)
+  scheduleDoubtDigest(logger);
+}
+
+function msUntil22h(): number {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(22, 0, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  return target.getTime() - now.getTime();
+}
+
+function scheduleDoubtDigest(logger: LoggerLike): void {
+  if (doubtDigestTimeoutHandle) clearTimeout(doubtDigestTimeoutHandle);
+
+  const delay = msUntil22h();
+  doubtDigestTimeoutHandle = setTimeout(async () => {
+    try {
+      const result = await sendDailyDoubtDigest();
+      if (result.sent) {
+        logger.info({ doubtCount: result.doubtCount }, 'Daily doubt digest sent to Felipe');
+      } else {
+        logger.info({}, 'Daily doubt digest: no doubts to send today');
+      }
+    } catch (error) {
+      logger.error({ error: error instanceof Error ? error.message : 'unknown' }, 'Daily doubt digest failed');
+    }
+    scheduleDoubtDigest(logger);
+  }, delay);
+
+  logger.info({ nextRunInMinutes: Math.round(delay / 60000) }, 'Daily doubt digest scheduled for 22:00');
 }
 
 export function stopProactiveScheduler(): void {
@@ -177,6 +210,7 @@ export function stopProactiveScheduler(): void {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
   if (jardesStartupHandle) { clearTimeout(jardesStartupHandle); jardesStartupHandle = null; }
   if (jardesIntervalHandle) { clearInterval(jardesIntervalHandle); jardesIntervalHandle = null; }
+  if (doubtDigestTimeoutHandle) { clearTimeout(doubtDigestTimeoutHandle); doubtDigestTimeoutHandle = null; }
 }
 
 export function getProactiveSchedulerState(): ProactiveSchedulerState {
