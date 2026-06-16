@@ -76,14 +76,24 @@ async function ensureSeedSimulationCases(): Promise<void> {
 }
 
 async function critiquePrompt(prompt: string, ragContext: string): Promise<CritiqueResponse> {
-  return generateJson<CritiqueResponse>(
-    `Prompt atual:\n${prompt}\n\nContexto de erros recorrentes:\n${ragContext}\n\nFaça uma crítica técnica e objetiva do prompt para a Iara.`,
-    [
-      "Você é um avaliador de qualidade de assistentes de WhatsApp.",
-      "Retorne JSON com: failures (array), opportunities (array), directives (array).",
-      "Foque em: tom humano, anti-repetição, empatia, segurança conversacional, entendimento de lembretes e perguntas ambíguas."
-    ].join("\n")
-  );
+  const systemInstructions = [
+    "Você é um avaliador sênior de qualidade de assistentes de WhatsApp financeiros no Brasil.",
+    "Sua única função é criticar prompts de IA com precisão técnica.",
+    "Retorne EXCLUSIVAMENTE JSON com três campos:",
+    "  failures: string[]   — falhas concretas observadas no prompt (tom robótico, repetição, execução sem confirmação, etc.)",
+    "  opportunities: string[] — melhorias específicas ainda não contempladas",
+    "  directives: string[] — instruções reescritas e acionáveis para corrigir cada falha",
+    "Não adicione texto fora do JSON. Não use markdown.",
+    "Priorize: segurança conversacional (não executar ação em pergunta), anti-repetição de frases, empatia sem exagero, precisão em lembretes e datas."
+  ].join("\n");
+
+  const userInput = [
+    `## Prompt atual\n${prompt}`,
+    `## Erros recorrentes detectados em produção\n${ragContext}`,
+    "## Tarefa\nCritique o prompt acima considerando os erros de produção. Seja específico e cirúrgico."
+  ].join("\n\n");
+
+  return generateJson<CritiqueResponse>(userInput, systemInstructions);
 }
 
 async function generateCandidatePrompt(input: {
@@ -91,15 +101,52 @@ async function generateCandidatePrompt(input: {
   critique: CritiqueResponse;
   ragContext: string;
 }): Promise<CandidatePromptResponse> {
-  return generateJson<CandidatePromptResponse>(
-    `Prompt atual:\n${input.currentPrompt}\n\nCrítica:\n${JSON.stringify(input.critique, null, 2)}\n\nRAG:\n${input.ragContext}`,
-    [
-      "Você é um prompt engineer sênior para assistente financeira brasileira no WhatsApp.",
-      "Gere uma nova versão de prompt mais natural, empática e segura.",
-      "Mantenha foco financeiro e comercial da Iara.",
-      "Inclua regras para: não repetir resposta, não executar ação em pergunta, confirmação em ambiguidade, lembretes precisos.",
-      "Retorne JSON com: prompt (string) e changeSummary (array)."
-    ].join("\n")
+  const systemInstructions = [
+    "Você é um prompt engineer sênior especializado em assistentes financeiras conversacionais para WhatsApp no Brasil.",
+    "Sua tarefa é reescrever um prompt de IA incorporando uma crítica técnica e padrões de erro reais.",
+    "Regras obrigatórias que o novo prompt DEVE conter explicitamente:",
+    "  1. Nunca executar ação de registro em mensagens que sejam perguntas (ex: '80 em mercado?' é pergunta, não lançamento).",
+    "  2. Pedir confirmação antes de qualquer ação ambígua.",
+    "  3. Nunca repetir a mesma frase ou estrutura de resposta em sequência.",
+    "  4. Lembretes: confirmar horário, data e contexto completo antes de salvar.",
+    "  5. Tom: brasileiro, direto, acolhedor — nunca robótico ou formal em excesso.",
+    "Retorne EXCLUSIVAMENTE JSON com:",
+    "  prompt: string   — novo prompt completo e autocontido",
+    "  changeSummary: string[] — lista das mudanças aplicadas em relação ao original",
+    "Não inclua texto fora do JSON. Não use markdown."
+  ].join("\n");
+
+  const userInput = [
+    `## Prompt atual\n${input.currentPrompt}`,
+    `## Crítica técnica\n${JSON.stringify(input.critique, null, 2)}`,
+    `## Erros de produção (RAG)\n${input.ragContext}`,
+    "## Tarefa\nGere o novo prompt incorporando todas as diretrizes da crítica e os padrões de erro reais."
+  ].join("\n\n");
+
+  return generateJson<CandidatePromptResponse>(userInput, systemInstructions);
+}
+
+const EVALUATOR_INSTRUCTIONS = [
+  "Você é avaliador de qualidade de resposta da Iara, assistente financeira no WhatsApp.",
+  "Pontue de 0.0 a 1.0 cada dimensão:",
+  "  score — qualidade geral",
+  "  conversationalNaturalness — soou humana e brasileira?",
+  "  antiRepetition — evitou frases repetidas ou estrutura idêntica?",
+  "  empathy — foi acolhedora sem ser exagerada?",
+  "  transactionalSafety — não executou ação em pergunta, pediu confirmação em ambiguidade?",
+  "Retorne EXCLUSIVAMENTE JSON com esses cinco campos numéricos e 'notes' (string curta).",
+  "Não use markdown. Não adicione texto fora do JSON."
+].join("\n");
+
+async function evaluateCase(simulationCase: SimulationCase, prompt: string): Promise<SimulationEvaluation> {
+  const iaraReply = await generateText(
+    `Contexto: ${simulationCase.context ?? "sem contexto"}\nUsuário: ${simulationCase.input}\n\nResponda como Iara.`,
+    prompt
+  );
+
+  return generateJson<SimulationEvaluation>(
+    `## Caso de teste\n${JSON.stringify(simulationCase, null, 2)}\n\n## Resposta da Iara\n${iaraReply}`,
+    EVALUATOR_INSTRUCTIONS
   );
 }
 
@@ -107,31 +154,9 @@ async function runSimulation(input: {
   prompt: string;
   cases: SimulationCase[];
 }): Promise<{ score: number; details: SimulationEvaluation[] }> {
-  const details: SimulationEvaluation[] = [];
-
-  for (const simulationCase of input.cases.slice(0, env.MAX_SIMULATION_CASES)) {
-    const iaraReply = await generateText(
-      `Contexto: ${simulationCase.context ?? "sem contexto"}\nUsuário: ${simulationCase.input}\n\nResponda como Iara.`,
-      input.prompt
-    );
-
-    const evaluation = await generateJson<SimulationEvaluation>(
-      `Caso:\n${JSON.stringify(simulationCase, null, 2)}\n\nResposta da Iara:\n${iaraReply}`,
-      [
-        "Você é avaliador de qualidade de resposta da Iara.",
-        "Pontue de 0 a 1 os campos:",
-        "- score",
-        "- conversationalNaturalness",
-        "- antiRepetition",
-        "- empathy",
-        "- transactionalSafety",
-        "Retorne também notes curtas.",
-        "Saída obrigatória em JSON."
-      ].join("\n")
-    );
-
-    details.push(evaluation);
-  }
+  const details = await Promise.all(
+    input.cases.slice(0, env.MAX_SIMULATION_CASES).map((c) => evaluateCase(c, input.prompt))
+  );
 
   const score = details.length
     ? details.reduce((acc, cur) => acc + (cur.score ?? 0), 0) / details.length
@@ -278,6 +303,31 @@ export async function runSelfImprovement(triggerReason: string): Promise<Improve
   }
 
   await activatePrompt(candidatePrompt.id);
+
+  const autoDeployEnabled = env.AUTOPILOT_AUTO_DEPLOY === "true";
+
+  if (!autoDeployEnabled) {
+    const runId = await saveImprovementRun({
+      triggerReason,
+      status: "improved",
+      baselinePromptId: active.id,
+      candidatePromptId: candidatePrompt.id,
+      baselineScore: baselineEval.score,
+      candidateScore: effectiveCandidateScore,
+      deployId: null,
+      summary: "Prompt melhorado — deploy pendente de aprovação manual (AUTOPILOT_AUTO_DEPLOY=false)",
+      details: { gain, critique, candidateSummary: candidate.changeSummary, validatorResults, baselineEval, candidateEval, candidateEmbeddingPreview: candidateEmbedding.slice(0, 8) }
+    });
+    return {
+      runId,
+      status: "improved",
+      reason: "Prompt promovido — deploy aguarda aprovação manual",
+      baselineScore: baselineEval.score,
+      candidateScore: effectiveCandidateScore,
+      candidatePromptId: candidatePrompt.id,
+      deployed: false
+    };
+  }
 
   const projectRoot = path.resolve(process.cwd());
   const deployment = await deployToVercel(projectRoot);

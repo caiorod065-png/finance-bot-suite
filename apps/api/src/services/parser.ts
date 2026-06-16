@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import type { ParsedIntent, SpendingLimitPeriod } from '../types.js';
 import { recordOpenAiUsageFromResponse } from './openai-usage.js';
 import { getCustomerProfileFacts, upsertCustomerProfileFact } from './ledger.js';
+import { withBreaker } from './openai-circuit-breaker.js';
 
 const client = config.openAiApiKey ? new OpenAI({ apiKey: config.openAiApiKey }) : null;
 
@@ -1735,21 +1736,22 @@ export async function generateScopedSupportReply(params: {
     return reply.length > 0 ? reply : null;
   };
 
-  try {
-    const primary = await requestSupport(480, 9000, config.openAiAgentTemperature);
-    if (primary && isSupportReplyAlignedWithUserIntent(params.text, primary)) return primary;
+  return withBreaker(
+    async () => {
+      const primary = await requestSupport(480, 9000, config.openAiAgentTemperature);
+      if (primary && isSupportReplyAlignedWithUserIntent(params.text, primary)) return primary;
 
-    // Retry curto para reduzir quedas ocasionais de resposta vazia.
-    try {
-      const retry = await requestSupport(360, 6000, Math.max(0.65, Math.min(config.openAiAgentTemperature, 0.9)));
-      if (retry && isSupportReplyAlignedWithUserIntent(params.text, retry)) return retry;
-    } catch {
-      // segue para fallback humano local
-    }
-    return fallbackSupportReply(params);
-  } catch {
-    return fallbackSupportReply(params);
-  }
+      // Retry curto para reduzir quedas ocasionais de resposta vazia.
+      try {
+        const retry = await requestSupport(360, 6000, Math.max(0.65, Math.min(config.openAiAgentTemperature, 0.9)));
+        if (retry && isSupportReplyAlignedWithUserIntent(params.text, retry)) return retry;
+      } catch {
+        // segue para fallback humano local
+      }
+      return fallbackSupportReply(params);
+    },
+    () => fallbackSupportReply(params)
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

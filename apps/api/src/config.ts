@@ -97,6 +97,7 @@ export const config = {
   pluggyClientId: normalizedEnv('PLUGGY_CLIENT_ID', ''),
   pluggyClientSecret: normalizedEnv('PLUGGY_CLIENT_SECRET', ''),
   pluggyWebhookSecret: normalizedEnv('PLUGGY_WEBHOOK_SECRET', ''),
+  apiPublicUrl: normalizedEnv('API_PUBLIC_URL', ''),
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())

@@ -1,3 +1,4 @@
+import cron from 'node-cron';
 import { config } from '../config.js';
 import { runProactiveAlerts, type ProactiveRunResult } from './proactive-alerts.js';
 import { ensureJardesSchema, runJardesAnalysis, sendDailyDoubtDigest } from './jardes-analysis.js';
@@ -36,7 +37,7 @@ let intervalHandle: NodeJS.Timeout | null = null;
 let startupHandle: NodeJS.Timeout | null = null;
 let jardesIntervalHandle: NodeJS.Timeout | null = null;
 let jardesStartupHandle: NodeJS.Timeout | null = null;
-let doubtDigestTimeoutHandle: NodeJS.Timeout | null = null;
+let doubtDigestCronTask: cron.ScheduledTask | null = null;
 
 async function runOneCycle(logger: LoggerLike): Promise<void> {
   if (!state.enabled) return;
@@ -172,37 +173,27 @@ export function startProactiveScheduler(logger: LoggerLike): void {
 
   logger.info({ intervalHours: 6, firstDelayMinutes: 3 }, 'Jardes analysis scheduler started');
 
-  // Daily doubt digest: schedule for 22:00 local time (America/Sao_Paulo)
+  // Daily doubt digest: cron às 22:00 horário de São Paulo (survives API restarts)
   scheduleDoubtDigest(logger);
 }
 
-function msUntil22h(): number {
-  const now = new Date();
-  const target = new Date(now);
-  target.setHours(22, 0, 0, 0);
-  if (target <= now) target.setDate(target.getDate() + 1);
-  return target.getTime() - now.getTime();
-}
-
 function scheduleDoubtDigest(logger: LoggerLike): void {
-  if (doubtDigestTimeoutHandle) clearTimeout(doubtDigestTimeoutHandle);
+  if (doubtDigestCronTask) doubtDigestCronTask.stop();
 
-  const delay = msUntil22h();
-  doubtDigestTimeoutHandle = setTimeout(async () => {
+  doubtDigestCronTask = cron.schedule('0 22 * * *', async () => {
     try {
       const result = await sendDailyDoubtDigest();
       if (result.sent) {
-        logger.info({ doubtCount: result.doubtCount }, 'Daily doubt digest sent to Felipe');
+        logger.info({ doubtCount: result.doubtCount }, 'Daily doubt digest sent');
       } else {
         logger.info({}, 'Daily doubt digest: no doubts to send today');
       }
     } catch (error) {
       logger.error({ error: error instanceof Error ? error.message : 'unknown' }, 'Daily doubt digest failed');
     }
-    scheduleDoubtDigest(logger);
-  }, delay);
+  }, { timezone: config.defaultTimezone });
 
-  logger.info({ nextRunInMinutes: Math.round(delay / 60000) }, 'Daily doubt digest scheduled for 22:00');
+  logger.info({ timezone: config.defaultTimezone }, 'Daily doubt digest scheduled via cron at 22:00');
 }
 
 export function stopProactiveScheduler(): void {
@@ -210,7 +201,7 @@ export function stopProactiveScheduler(): void {
   if (intervalHandle) { clearInterval(intervalHandle); intervalHandle = null; }
   if (jardesStartupHandle) { clearTimeout(jardesStartupHandle); jardesStartupHandle = null; }
   if (jardesIntervalHandle) { clearInterval(jardesIntervalHandle); jardesIntervalHandle = null; }
-  if (doubtDigestTimeoutHandle) { clearTimeout(doubtDigestTimeoutHandle); doubtDigestTimeoutHandle = null; }
+  if (doubtDigestCronTask) { doubtDigestCronTask.stop(); doubtDigestCronTask = null; }
 }
 
 export function getProactiveSchedulerState(): ProactiveSchedulerState {

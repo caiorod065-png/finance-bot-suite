@@ -5733,7 +5733,43 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return stream;
   });
 
-  app.get('/webhooks/whatsapp', async (request, reply) => {
+  const webhookVerifySchema = {
+    querystring: {
+      type: 'object',
+      properties: {
+        'hub.mode':         { type: 'string' },
+        'hub.challenge':    { type: 'string' },
+        'hub.verify_token': { type: 'string' },
+      },
+    },
+  } as const;
+
+  const whatsappInboundSchema = {
+    body: { type: 'object', additionalProperties: true },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      403: {
+        type: 'object',
+        properties: { error: { type: 'string' } },
+        required: ['error'],
+      },
+    },
+  } as const;
+
+  const twilioInboundSchema = {
+    body: {
+      type: 'object',
+      properties: {
+        From:        { type: 'string' },
+        WaId:        { type: 'string' },
+        Body:        { type: 'string' },
+        ProfileName: { type: 'string' },
+      },
+      additionalProperties: true,
+    },
+  } as const;
+
+  app.get('/webhooks/whatsapp', { schema: webhookVerifySchema }, async (request, reply) => {
     const query = request.query as Record<string, unknown> & {
       hub?: { mode?: string; challenge?: string; verify_token?: string };
     };
@@ -5766,7 +5802,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(403).send({ error: 'forbidden' });
   });
 
-  app.post('/webhooks/whatsapp', async (request, reply) => {
+  app.post('/webhooks/whatsapp', { schema: whatsappInboundSchema }, async (request, reply) => {
     if (config.whatsappAppSecret) {
       const sigHeader = (request.headers['x-hub-signature-256'] as string | undefined) ?? '';
       const rawBody = (request as unknown as Record<string, unknown>).rawBody as Buffer | undefined;
@@ -5856,7 +5892,32 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     return { ...processed.responseBody, replyText: finalReplyText };
   });
 
-  app.post('/webhooks/whatsapp/twilio', async (request, reply) => {
+  // Twilio webhook signature verification (HMAC-SHA1 over sorted params + URL)
+  function verifyTwilioSignature(authToken: string, signature: string, url: string, params: Record<string, string>): boolean {
+    const sortedParams = Object.keys(params).sort().map(k => `${k}${params[k]}`).join('');
+    const expected = createHmac('sha1', authToken).update(url + sortedParams).digest('base64');
+    try {
+      return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    } catch {
+      return false;
+    }
+  }
+
+  app.post('/webhooks/whatsapp/twilio', { schema: twilioInboundSchema }, async (request, reply) => {
+    if (config.twilioAuthToken) {
+      const twilioSig = (request.headers['x-twilio-signature'] as string | undefined) ?? '';
+      const webhookUrl = config.apiPublicUrl
+        ? `${config.apiPublicUrl}/webhooks/whatsapp/twilio`
+        : `https://${request.headers.host}/webhooks/whatsapp/twilio`;
+      const bodyParams = (request.body ?? {}) as Record<string, string>;
+      if (!twilioSig || !verifyTwilioSignature(config.twilioAuthToken, twilioSig, webhookUrl, bodyParams)) {
+        request.log.error({ sig: twilioSig ? 'present' : 'missing' }, 'twilio_webhook_invalid_signature');
+        return reply.status(403).header('Content-Type', 'text/xml; charset=utf-8').send(twimlResponse());
+      }
+    } else {
+      request.log.warn('twilio_webhook_signature_disabled — TWILIO_AUTH_TOKEN not set');
+    }
+
     const payload = extractTwilioWebhookPayload(request.body);
 
     if (!payload) {

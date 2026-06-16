@@ -27,6 +27,7 @@ const envSchema = z.object({
   VERCEL_TEAM_ID: z.string().optional(),
   VERCEL_ENV_TARGET: z.enum(["production", "preview"]).default("production"),
   VERCEL_DEPLOY_HOOK_URL: z.preprocess(v => v === '' ? undefined : v, z.string().url().optional()),
+  AUTOPILOT_AUTO_DEPLOY: z.preprocess(v => v === '' ? undefined : v, z.enum(["true", "false"]).optional()).default("false"),
 
   VALIDATOR_AGENT_ENDPOINTS: z.string().optional(),
   VALIDATOR_AGENT_BEARER: z.string().optional()
