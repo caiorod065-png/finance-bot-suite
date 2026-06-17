@@ -498,7 +498,7 @@ async function getRecentMonitorLogs(ownerCustomerId: string, limitMinutes = 120)
 
 // ─── Conversation lookup ──────────────────────────────────────────────────────
 
-async function getConversationsForAnalysis(sinceHours: number): Promise<Array<{
+export async function getConversationsForAnalysis(sinceHours: number): Promise<Array<{
   customerId: string;
   customerName: string | null;
   messages: Array<{ direction: 'inbound' | 'outbound'; message: string }>;
