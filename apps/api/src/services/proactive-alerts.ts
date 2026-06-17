@@ -187,25 +187,36 @@ function ownerDailyReportMessage(params: {
       ? `✅ Sem falhas. Fora da janela: ${windowSkipped}`
       : '✅ Tudo OK, sem falhas.';
 
+  const pl = (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`;
+
   const attnItems: string[] = [];
-  if (params.pastDue > 0) attnItems.push(`${params.pastDue} inadimplente(s)`);
-  if (params.pendingSetup > 0) attnItems.push(`${params.pendingSetup} aguardando ativação`);
-  if (params.trialCustomers > 0) attnItems.push(`${params.trialCustomers} em trial`);
-  if (params.newCustomersToday > 0) attnItems.push(`🆕 ${params.newCustomersToday} novo(s) hoje`);
+  if (params.pastDue > 0) attnItems.push(`${pl(params.pastDue, 'inadimplente', 'inadimplentes')}`);
+  if (params.pendingSetup > 0) attnItems.push(`${pl(params.pendingSetup, 'aguardando ativação', 'aguardando ativação')}`);
+  if (params.trialCustomers > 0) attnItems.push(`${pl(params.trialCustomers, 'em trial', 'em trial')}`);
+  if (params.newCustomersToday > 0) attnItems.push(`🆕 ${pl(params.newCustomersToday, 'novo hoje', 'novos hoje')}`);
 
   const lines = [
-    `${greeting}, ${params.ownerName} 👑 | ${localNow}`,
+    `${greeting}, ${params.ownerName}! 👑`,
+    `📅 ${localNow}`,
     ``,
-    `💰 MRR: ${centsToBrl(params.mrrCents)} | ${params.activeCustomers} clientes ativos`,
+    `💰 MRR: ${centsToBrl(params.mrrCents)}`,
+    `👥 ${pl(params.activeCustomers, 'cliente ativo', 'clientes ativos')} — ${params.online24h} online nas últimas 24h (${engagementPct}%) — ${pl(params.inactive7d, 'inativo há 7+ dias', 'inativos há 7+ dias')}`,
   ];
   if (params.planBreakdown) lines.push(`📊 ${params.planBreakdown}`);
-  lines.push(`👥 Online 24h: ${params.online24h} (${engagementPct}%) | Inativos 7d: ${params.inactive7d}`);
-  if (attnItems.length > 0) lines.push(`⚠️ ${attnItems.join(' · ')}`);
-  lines.push(
-    ``,
-    `🤖 Automações: ${totalAlertsSent} enviadas | bom dia ${params.summary.bomDiasSent} · ausência ${params.summary.inactivityAlertsSent} · risco ${params.summary.riskAlertsSent} · lembrete ${params.summary.reminderAlertsSent} · renovação ${params.summary.renewalRemindersSent}`,
-    failureLine
-  );
+  if (attnItems.length > 0) lines.push(`⚠️ Atenção: ${attnItems.join(', ')}`);
+
+  if (totalAlertsSent > 0) {
+    const alertParts: string[] = [];
+    if (params.summary.bomDiasSent > 0) alertParts.push(`${params.summary.bomDiasSent} bom dia`);
+    if (params.summary.inactivityAlertsSent > 0) alertParts.push(`${params.summary.inactivityAlertsSent} ausência`);
+    if (params.summary.riskAlertsSent > 0) alertParts.push(`${params.summary.riskAlertsSent} risco`);
+    if (params.summary.reminderAlertsSent > 0) alertParts.push(`${params.summary.reminderAlertsSent} lembrete`);
+    if (params.summary.renewalRemindersSent > 0) alertParts.push(`${params.summary.renewalRemindersSent} renovação`);
+    lines.push(``, `📤 ${pl(totalAlertsSent, 'automação enviada', 'automações enviadas')}: ${alertParts.join(', ')}`);
+  } else {
+    lines.push(``, `📤 Nenhuma automação disparada neste ciclo`);
+  }
+  lines.push(failureLine);
   return lines.join('\n');
 }
 
@@ -365,14 +376,15 @@ function reminderMessage(params: {
   const dueLabel = params.dueTime ? `${due} às ${params.dueTime}` : due;
   const amountLine = params.amountCents ? ` Valor previsto: ${centsToBrl(params.amountCents)}.` : '';
   const leadLabel = params.remindMinutesBefore !== null
-    ? `${params.remindMinutesBefore} minuto(s) antes`
-    : `${params.remindDaysBefore} dia(s) antes`;
+    ? `${params.remindMinutesBefore} ${params.remindMinutesBefore === 1 ? 'minuto' : 'minutos'} antes`
+    : `${params.remindDaysBefore} ${params.remindDaysBefore === 1 ? 'dia' : 'dias'} antes`;
 
   if (params.daysUntilDue <= 0) {
     return `Oi, ${params.name}! 🔔 Passando pra lembrar: "${params.title}" vence hoje (${dueLabel}). Aviso configurado: ${leadLabel}.${amountLine}`;
   }
 
-  return `Oi, ${params.name}! 🔔 Lembrete: "${params.title}" vence em ${params.daysUntilDue} dia(s), no dia ${dueLabel}. Aviso configurado: ${leadLabel}.${amountLine}`;
+  const daysLabel = params.daysUntilDue === 1 ? 'amanhã' : `em ${params.daysUntilDue} dias`;
+  return `Oi, ${params.name}! 🔔 Lembrete: "${params.title}" vence ${daysLabel} (${dueLabel}).${amountLine}`;
 }
 
 function bomDiaMessage(name: string): string {
@@ -475,22 +487,24 @@ function followUpCheckInMessage(params: {
   if (params.tone === 'max') {
     return [
       `Oi, ${params.name}! Tudo bem por aí? 👀`,
-      `Faz cerca de ${silenceHours}h que você ficou offline depois da nossa última conversa.`,
-      'Se quiser, me manda em 1 linha como ficou seu dia financeiro e eu já te devolvo um ajuste prático.'
+      silenceHours <= 1
+        ? 'Fica à vontade se precisar de mim — só queria deixar a porta aberta.'
+        : `Passando para ver se tem algo do dia financeiro que posso te ajudar a fechar.`,
+      'Se quiser, me manda em 1 linha como foi o dia e eu já organizo tudo pra você.'
     ].join('\n');
   }
 
   if (params.tone === 'high') {
     return [
-      `Oi, ${params.name}! Tá tudo bem aí? 🙂`,
-      `Passando pra não te deixar perder o controle do dia.`,
-      'Quer que eu te ajude com um check rápido dos gastos de hoje?'
+      `Oi, ${params.name}! 🙂`,
+      `Passando pra não deixar o dia escapar sem controle.`,
+      'Quer um check rápido dos gastos de hoje?'
     ].join('\n');
   }
 
   return [
-    `Oi, ${params.name}! Tudo certo por aí?`,
-    'Se quiser, fazemos um check rápido agora: você me manda os gastos de hoje e eu organizo tudo.'
+    `Oi, ${params.name}! Tudo certo?`,
+    'Se quiser, me manda os gastos do dia e eu organizo tudo pra você agora.'
   ].join('\n');
 }
 
@@ -547,7 +561,7 @@ function riskForecastMessage(params: {
     return [
       `Oi, ${params.name}! 🚨 Risco detectado: no ritmo atual pode faltar ${centsToBrl(params.deficitCents)} até o fim do mês.`,
       params.daysLeft > 0
-        ? `Se ajustar cerca de ${centsToBrl(params.cutPerDayCents)}/dia pelos próximos ${params.daysLeft} dia(s), você tem boa chance de neutralizar esse risco.`
+        ? `Se ajustar cerca de ${centsToBrl(params.cutPerDayCents)}/dia pelos próximos ${params.daysLeft} ${params.daysLeft === 1 ? 'dia' : 'dias'}, você tem boa chance de neutralizar esse risco.`
         : 'O mês já está no limite, então o ajuste precisa começar agora.'
     ].join('\n');
   }
@@ -569,29 +583,36 @@ function progressMessage(params: {
   monthOverMonthPct: number | null;
   tone: AlertTone;
 }): string {
-  const streakLine = params.streakDays > 0
-    ? `🔥 Você está com ${params.streakDays} dia(s) seguidos de registro.`
-    : `📌 Você teve atividade em ${params.activeDaysLast30} dia(s) nos últimos 30.`;
+  const streakDays = params.streakDays;
+  const activeDays = params.activeDaysLast30;
+  const streakLine = streakDays > 1
+    ? `🔥 ${streakDays} dias seguidos registrando — isso faz diferença de verdade.`
+    : streakDays === 1
+      ? `🔥 Você registrou hoje — primeiro passo do streak.`
+      : activeDays > 0
+        ? `📌 Você teve atividade em ${activeDays} ${activeDays === 1 ? 'dia' : 'dias'} nos últimos 30.`
+        : `📌 Voltando ao controle — cada registro conta.`;
 
+  const absPct = params.monthOverMonthPct !== null ? Math.round(Math.abs(params.monthOverMonthPct)) : null;
   const trendLine = params.monthOverMonthPct === null
-    ? 'Ainda sem base comparativa do mês passado.'
+    ? 'Ainda sem histórico do mês passado para comparar.'
     : params.monthOverMonthPct <= -8
-      ? `📉 Seus gastos estão ${Math.abs(params.monthOverMonthPct).toFixed(1)}% abaixo do mês passado.`
+      ? `📉 Gastos ${absPct}% abaixo do mês passado — ótimo sinal.`
       : params.monthOverMonthPct >= 12
-        ? `📈 Seus gastos subiram ${params.monthOverMonthPct.toFixed(1)}% vs mês passado.`
-        : '📊 Seu ritmo está estável em relação ao mês passado.';
+        ? `📈 Gastos ${absPct}% acima do mês passado — vale revisar.`
+        : '📊 Ritmo estável em relação ao mês passado.';
 
   if (params.tone === 'max') {
     return [
-      `Oi, ${params.name}! ✅ Sinal de progresso detectado.`,
+      `Oi, ${params.name}! 🎯 Você está indo bem.`,
       streakLine,
       trendLine,
-      'Quer que eu te entregue agora o ajuste de maior impacto para continuar evoluindo amanhã?'
+      'Quer que eu veja o que ainda dá pra ajustar para fechar o mês ainda melhor?'
     ].join('\n');
   }
 
   return [
-    `Oi, ${params.name}! ✅ Progresso do dia:`,
+    `Oi, ${params.name}! ✅`,
     streakLine,
     trendLine
   ].join('\n');
@@ -677,11 +698,12 @@ function monthlyVisualReportMessage(params: {
   const trendEmoji = params.monthOverMonthExpensePct === null ? ''
     : params.monthOverMonthExpensePct > 5 ? ' 📈'
     : params.monthOverMonthExpensePct < -5 ? ' 📉' : ' ➡️';
+  const absMoPct = params.monthOverMonthExpensePct !== null ? Math.round(Math.abs(params.monthOverMonthExpensePct)) : null;
   const trendText = params.monthOverMonthExpensePct === null ? ''
     : params.monthOverMonthExpensePct > 0
-      ? `+${params.monthOverMonthExpensePct.toFixed(1)}% vs mês anterior${trendEmoji}`
+      ? `+${absMoPct}% vs mês anterior${trendEmoji}`
       : params.monthOverMonthExpensePct < 0
-        ? `${params.monthOverMonthExpensePct.toFixed(1)}% vs mês anterior${trendEmoji}`
+        ? `-${absMoPct}% vs mês anterior${trendEmoji}`
         : `Estável vs mês anterior${trendEmoji}`;
 
   const netLabel = params.netCents >= 0
@@ -1634,7 +1656,7 @@ export async function runProactiveAlerts(params: ProactiveRunParams = {}): Promi
                 `💰 Entradas: ${centsToBrl(riskSnap.totalIncomeCents)}`,
                 `📉 Saldo: ${centsToBrl(riskSnap.netCents)}`,
                 ``,
-                `Com ${riskSnap.memberCount} membro(s) no grupo. Hora de revisar os gastos juntos. 🏠`
+                `${riskSnap.memberCount === 1 ? '1 membro no grupo' : `${riskSnap.memberCount} membros no grupo`}. Hora de revisar os gastos juntos. 🏠`
               ].join('\n');
 
               let sentOk = false;
