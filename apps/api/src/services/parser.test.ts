@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inferCategory, parseIntent } from './parser.js';
+import { inferCategory, parseIntent, detectClientContext, formatProfileFactsForPrompt } from './parser.js';
 
 const referenceDate = new Date('2026-03-24T21:00:00.000Z');
 
@@ -206,4 +206,200 @@ test('Bateria extra: perguntas com valor monetário continuam seguras (sem escri
     assert.notEqual(intent.type, 'set-spending-limit', `Não deveria setar limite para: "${text}"`);
     assert.notEqual(intent.type, 'clear-spending-limit', `Não deveria remover limite para: "${text}"`);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// inferCategory — todas as categorias em bateria única
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('inferCategory: bateria completa de categorias', () => {
+  // transporte
+  assert.equal(inferCategory('paguei uber 28 reais'), 'transporte');
+  assert.equal(inferCategory('gasolina do carro'), 'transporte');
+  assert.equal(inferCategory('passagem de ônibus'), 'transporte');
+  assert.equal(inferCategory('estacionamento hoje'), 'transporte');
+  // alimentação
+  assert.equal(inferCategory('almocei no restaurante'), 'alimentacao');
+  assert.equal(inferCategory('pedi ifood'), 'alimentacao');
+  assert.equal(inferCategory('pizza delivery'), 'alimentacao');
+  assert.equal(inferCategory('açaí com granola'), 'alimentacao');
+  // mercado
+  assert.equal(inferCategory('fui ao supermercado'), 'mercado');
+  assert.equal(inferCategory('compra do mercado'), 'mercado');
+  assert.equal(inferCategory('feira livre hoje'), 'mercado');
+  // saúde
+  assert.equal(inferCategory('consulta médica'), 'saude');
+  assert.equal(inferCategory('farmácia remédio'), 'saude');
+  assert.equal(inferCategory('academia mensal'), 'saude');
+  assert.equal(inferCategory('sessão de fisioterapia'), 'saude');
+  // lazer
+  assert.equal(inferCategory('netflix mensal'), 'lazer');
+  assert.equal(inferCategory('cinema com amigos'), 'lazer');
+  assert.equal(inferCategory('ingresso show'), 'lazer');
+  // moradia
+  assert.equal(inferCategory('aluguel do apartamento'), 'moradia');
+  assert.equal(inferCategory('condomínio deste mês'), 'moradia');
+  assert.equal(inferCategory('reforma do banheiro'), 'moradia');
+  // utilidades
+  assert.equal(inferCategory('conta de água'), 'utilidades');
+  assert.equal(inferCategory('conta de luz'), 'utilidades');
+  assert.equal(inferCategory('internet mensal'), 'utilidades');
+  assert.equal(inferCategory('botijão de gás'), 'utilidades');
+  // educação
+  assert.equal(inferCategory('mensalidade da faculdade'), 'educacao');
+  assert.equal(inferCategory('curso online'), 'educacao');
+  assert.equal(inferCategory('material escolar'), 'educacao');
+  // vestuário
+  assert.equal(inferCategory('comprei uma camisa'), 'vestuario');
+  assert.equal(inferCategory('tênis novo'), 'vestuario');
+  assert.equal(inferCategory('calça jeans'), 'vestuario');
+  // beleza
+  assert.equal(inferCategory('manicure'), 'beleza');
+  assert.equal(inferCategory('salão de cabeleireiro'), 'beleza');
+  assert.equal(inferCategory('barbearia'), 'beleza');
+  // impostos
+  assert.equal(inferCategory('IPTU do imóvel'), 'impostos');
+  assert.equal(inferCategory('IPVA do carro'), 'impostos');
+  // outros
+  assert.equal(inferCategory('coisa aleatória sem categoria'), 'outros');
+  assert.equal(inferCategory('presente para amigo'), 'outros');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Valores monetários e datas relativas (via parseIntent com disableAi)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('Valores monetários: numérico simples, centavos, R$, milhar, extenso puro', async () => {
+  const cases: Array<{ text: string; cents: number }> = [
+    { text: 'gastei 50 reais no mercado', cents: 5000 },
+    { text: 'paguei 32,50 no restaurante', cents: 3250 },
+    { text: 'gastei R$ 120 no shopping', cents: 12000 },
+    { text: 'paguei 1.500 reais de aluguel', cents: 150000 },
+    { text: 'gastei trinta reais no mercado', cents: 3000 },
+    { text: 'paguei cinquenta e cinco reais de aluguel', cents: 5500 },
+    { text: 'gastei trinta e dois reais no lanche', cents: 3200 },
+  ];
+  for (const c of cases) {
+    const intent = await parseIntent(c.text, referenceDate, { disableAi: true });
+    assert.equal(intent.type, 'register-transaction', `tipo errado para: "${c.text}"`);
+    if (intent.type === 'register-transaction') {
+      assert.equal(intent.amountCents, c.cents, `centavos errado para: "${c.text}"`);
+    }
+  }
+});
+
+test('Valor misto "30 e dois reais" prioriza numérico (30 reais = 3000)', async () => {
+  // currencyAfterNumber captura "30 reais" antes do processamento por extenso misto
+  const intent = await parseIntent('gastei 30 e dois reais no lanche', referenceDate, { disableAi: true });
+  assert.equal(intent.type, 'register-transaction');
+  if (intent.type === 'register-transaction') {
+    assert.equal(intent.amountCents, 3000);
+  }
+});
+
+test('Datas relativas: ontem, anteontem, hoje, data explícita', async () => {
+  const cases = [
+    { text: 'ontem gastei 40 reais em lanche', pattern: /^2026-03-23T/ },
+    { text: 'anteontem gastei 60 reais em transporte', pattern: /^2026-03-22T/ },
+    { text: 'hoje gastei 20 reais em café', pattern: /^2026-03-24T/ },
+    { text: 'gastei 80 reais em mercado no dia 10/03', pattern: /^2026-03-10T/ },
+  ];
+  for (const c of cases) {
+    const intent = await parseIntent(c.text, referenceDate, { disableAi: true });
+    assert.equal(intent.type, 'register-transaction', `tipo errado para: "${c.text}"`);
+    if (intent.type === 'register-transaction') {
+      assert.match(intent.occurredAtIso ?? '', c.pattern, `data errada para: "${c.text}"`);
+    }
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ruleBased — intents reconhecidos sem OpenAI
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('ruleBased: resumo, income, delete, limites, extrato, correção', async () => {
+  // resumo mensal
+  const resumo = await parseIntent('resumo do mês', referenceDate, { disableAi: true });
+  assert.equal(resumo.type, 'monthly-summary');
+  if (resumo.type === 'monthly-summary') {
+    assert.equal(resumo.month, 3);
+    assert.equal(resumo.year, 2026);
+  }
+
+  // income
+  const income = await parseIntent('recebi 3000 reais de salário', referenceDate, { disableAi: true });
+  assert.equal(income.type, 'register-transaction');
+  if (income.type === 'register-transaction') {
+    assert.equal(income.kind, 'income');
+    assert.equal(income.amountCents, 300000);
+  }
+
+  // delete
+  const del = await parseIntent('apaga o último gasto', referenceDate, { disableAi: true });
+  assert.equal(del.type, 'delete-last-transaction');
+
+  // limites
+  const listLim = await parseIntent('meus limites', referenceDate, { disableAi: true });
+  assert.equal(listLim.type, 'list-spending-limits');
+
+  const setLim = await parseIntent('limite semanal de 500 reais', referenceDate, { disableAi: true });
+  assert.equal(setLim.type, 'set-spending-limit');
+  if (setLim.type === 'set-spending-limit') {
+    assert.equal(setLim.period, 'weekly');
+    assert.equal(setLim.amountCents, 50000);
+  }
+
+  // "zera" é uma palavra completa e casa \bzera\b na regex de clear
+  const clrLim = await parseIntent('zera o limite semanal', referenceDate, { disableAi: true });
+  assert.equal(clrLim.type, 'clear-spending-limit');
+
+  // extrato
+  const extrato = await parseIntent('quero ver meu extrato', referenceDate, { disableAi: true });
+  assert.equal(extrato.type, 'ask-expense-period');
+
+  const exMes = await parseIntent('todos os gastos esse mês', referenceDate, { disableAi: true });
+  assert.equal(exMes.type, 'full-expense-list');
+  if (exMes.type === 'full-expense-list') {
+    assert.equal(exMes.period, 'this-month');
+  }
+
+  // "deste mês" não casa "esse mes" → ask-expense-period
+  const desteMes = await parseIntent('todos os gastos deste mês', referenceDate, { disableAi: true });
+  assert.equal(desteMes.type, 'ask-expense-period');
+
+  // correção rápida
+  const corr = await parseIntent('não, foi 33', referenceDate, { disableAi: true });
+  assert.equal(corr.type, 'correct-last-transaction');
+  if (corr.type === 'correct-last-transaction') {
+    assert.equal(corr.newAmountCents, 3300);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// detectClientContext e formatProfileFactsForPrompt — funções puras
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('detectClientContext: DDD, tom emocional e linguagem', () => {
+  assert.match(detectClientContext('+5511998887777', 'oi'), /São Paulo \(capital\)/);
+  assert.match(detectClientContext('+5521987654321', 'oi'), /Rio de Janeiro/);
+  assert.match(detectClientContext('+5511999', 'absurdo, não funciona de jeito nenhum'), /irritado/);
+  assert.match(detectClientContext('+5511999', 'não entendi nada, como assim?'), /confuso/);
+  assert.match(detectClientContext('+5511999', 'precisa ser agora, urgente!'), /urgência/);
+  assert.match(detectClientContext('+5511999', 'mano, tá ligado? sacou?'), /muito informal/);
+});
+
+test('formatProfileFactsForPrompt: vazio, fatos conhecidos e chave desconhecida', () => {
+  assert.equal(formatProfileFactsForPrompt([]), undefined);
+
+  const result = formatProfileFactsForPrompt([
+    { key: 'profissao', value: 'CLT' },
+    { key: 'tem_dependentes', value: 'sim (2 filhos)' }
+  ]);
+  assert.ok(result);
+  assert.match(result, /Profissão: CLT/);
+  assert.match(result, /Dependentes: sim \(2 filhos\)/);
+
+  const unknown = formatProfileFactsForPrompt([{ key: 'chave_nao_mapeada', value: 'valor_teste' }]);
+  assert.ok(unknown);
+  assert.match(unknown, /chave_nao_mapeada: valor_teste/);
 });

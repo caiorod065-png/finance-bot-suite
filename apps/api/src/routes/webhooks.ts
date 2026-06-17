@@ -170,7 +170,9 @@ const twilioInboundSchema = z.object({
   From: z.string().optional(),
   WaId: z.string().optional(),
   Body: z.string().optional(),
-  ProfileName: z.string().optional()
+  ProfileName: z.string().optional(),
+  MessageSid: z.string().optional(),
+  SmsMessageSid: z.string().optional()
 }).passthrough();
 
 function extractMetaWebhookPayload(rawBody: unknown): InboundPayload | null {
@@ -3082,7 +3084,8 @@ function extractTwilioWebhookPayload(rawBody: unknown): InboundPayload | null {
   return {
     from,
     text: bodyText,
-    name: parsed.data.ProfileName
+    name: parsed.data.ProfileName,
+    messageId: parsed.data.MessageSid ?? parsed.data.SmsMessageSid
   };
 }
 
@@ -5897,7 +5900,9 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const sortedParams = Object.keys(params).sort().map(k => `${k}${params[k]}`).join('');
     const expected = createHmac('sha1', authToken).update(url + sortedParams).digest('base64');
     try {
-      return signature.length === expected.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+      const sigBuf = Buffer.from(signature);
+      const expBuf = Buffer.from(expected);
+      return sigBuf.byteLength === expBuf.byteLength && timingSafeEqual(sigBuf, expBuf);
     } catch {
       return false;
     }
@@ -5915,7 +5920,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(403).header('Content-Type', 'text/xml; charset=utf-8').send(twimlResponse());
       }
     } else {
-      request.log.warn('twilio_webhook_signature_disabled — TWILIO_AUTH_TOKEN not set');
+      request.log.error('twilio_webhook_auth_not_configured — rejecting unauthenticated request');
+      return reply.status(403).header('Content-Type', 'text/xml; charset=utf-8').send(twimlResponse());
     }
 
     const payload = extractTwilioWebhookPayload(request.body);
@@ -5924,6 +5930,14 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       return reply
         .header('Content-Type', 'text/xml; charset=utf-8')
         .send(twimlResponse());
+    }
+
+    if (payload.messageId) {
+      const isNew = await claimWebhookMessage(payload.messageId);
+      if (!isNew) {
+        request.log.warn({ messageId: payload.messageId }, 'twilio_duplicate_message_skipped');
+        return reply.header('Content-Type', 'text/xml; charset=utf-8').send(twimlResponse());
+      }
     }
 
     const processed = await processInboundMessage(payload);

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
@@ -53,14 +54,28 @@ function mapAsaasEventToLocalStatus(event: string): string {
 }
 
 export async function billingRoutes(app: FastifyInstance): Promise<void> {
-  app.post('/webhooks/billing/asaas', async (request, reply) => {
+  const asaasInboundSchema = {
+    body: { type: 'object', additionalProperties: true },
+    response: {
+      200: { type: 'object', additionalProperties: true },
+      400: { type: 'object', properties: { error: { type: 'string' } }, required: ['error'] },
+      401: { type: 'object', properties: { error: { type: 'string' } }, required: ['error'] },
+    },
+  } as const;
+
+  app.post('/webhooks/billing/asaas', { schema: asaasInboundSchema }, async (request, reply) => {
     const incomingToken = typeof request.headers['x-webhook-token'] === 'string'
       ? request.headers['x-webhook-token']
       : undefined;
     const queryToken = (request.query as { token?: string } | undefined)?.token;
     const providedToken = incomingToken ?? queryToken;
 
-    if (!config.asaasWebhookToken || providedToken !== config.asaasWebhookToken) {
+    if (!config.asaasWebhookToken || !providedToken) {
+      return reply.status(401).send({ error: 'unauthorized' });
+    }
+    const tokenA = Buffer.from(providedToken.padEnd(config.asaasWebhookToken.length, '\0'));
+    const tokenB = Buffer.from(config.asaasWebhookToken);
+    if (tokenA.length !== tokenB.length || !timingSafeEqual(tokenA, tokenB)) {
       return reply.status(401).send({ error: 'unauthorized' });
     }
 

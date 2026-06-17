@@ -684,36 +684,18 @@ export function listPlans() {
 
 export async function upsertCustomerByWhatsapp(whatsappNumber: string, name?: string): Promise<{ id: string; name: string | null; monthlyIncomeCents: number | null }> {
   await ensureCustomerSchema();
-  const found = await pool.query<{ id: string; name: string | null; monthly_income_cents: number | null }>(
-    `SELECT id, name, monthly_income_cents FROM customers WHERE whatsapp_number = $1 LIMIT 1`,
-    [whatsappNumber]
-  );
-
-  if (found.rowCount && found.rows[0]) {
-    if (!found.rows[0].name && name) {
-      await pool.query(`UPDATE customers SET name = $2, updated_at = NOW() WHERE id = $1`, [found.rows[0].id, name]);
-      return { id: found.rows[0].id, name, monthlyIncomeCents: found.rows[0].monthly_income_cents };
-    }
-    return {
-      id: found.rows[0].id,
-      name: found.rows[0].name,
-      monthlyIncomeCents: found.rows[0].monthly_income_cents
-    };
-  }
-
-  const created = await pool.query<{ id: string; name: string | null; monthly_income_cents: number | null }>(
+  const result = await pool.query<{ id: string; name: string | null; monthly_income_cents: number | null }>(
     `INSERT INTO customers (whatsapp_number, name)
      VALUES ($1, $2)
+     ON CONFLICT (whatsapp_number) DO UPDATE
+       SET name       = COALESCE(EXCLUDED.name, customers.name),
+           updated_at = NOW()
      RETURNING id, name, monthly_income_cents`,
     [whatsappNumber, name ?? null]
   );
-
-  await ensureSubscription(created.rows[0].id);
-  return {
-    id: created.rows[0].id,
-    name: created.rows[0].name,
-    monthlyIncomeCents: created.rows[0].monthly_income_cents
-  };
+  const row = result.rows[0];
+  await ensureSubscription(row.id);
+  return { id: row.id, name: row.name, monthlyIncomeCents: row.monthly_income_cents };
 }
 
 export async function findCustomerByWhatsappLoose(whatsappNumber: string): Promise<{
@@ -1837,42 +1819,60 @@ export async function joinFamilyGroupByCode(params: {
   const ownerSub = await ensureSubscription(row.owner_customer_id);
   const extraSlots = normalizedExtraFamilySlots(Number(row.extra_member_slots ?? 0));
   const memberLimit = effectiveFamilyMemberLimit(ownerSub.plan_code, extraSlots);
-  const activeCountRes = await pool.query<{ total: string }>(
-    `SELECT COUNT(*)::text AS total
-     FROM family_members
-     WHERE family_group_id = $1
-       AND is_active = TRUE`,
-    [row.group_id]
-  );
-  const activeMembersBefore = Number(activeCountRes.rows[0]?.total ?? '0');
-  const existingMembership = await pool.query<{ is_active: boolean }>(
-    `SELECT is_active
-     FROM family_members
-     WHERE family_group_id = $1
-       AND customer_id = $2
-     LIMIT 1`,
-    [row.group_id, params.customerId]
-  );
-  const alreadyActive = Boolean(existingMembership.rows[0]?.is_active);
-  if (!alreadyActive && activeMembersBefore >= memberLimit) {
-    throw new Error('family_group_full');
-  }
 
-  await pool.query(
-    `INSERT INTO family_members (family_group_id, customer_id, role, is_active)
-     VALUES ($1, $2, 'member', TRUE)
-     ON CONFLICT (family_group_id, customer_id)
-     DO UPDATE SET is_active = TRUE`,
-    [row.group_id, params.customerId]
-  );
+  const client = await pool.connect();
+  let activeMembersBefore = 0;
+  let alreadyActive = false;
+  try {
+    await client.query('BEGIN');
 
-  if (inviteMode === 'single_use' && row.invite_id && !alreadyActive) {
-    await pool.query(
-      `UPDATE family_invites
-       SET used_count = used_count + 1
-       WHERE id = $1`,
-      [row.invite_id]
+    // Lock the group row to serialize concurrent joins
+    await client.query(
+      `SELECT id FROM family_groups WHERE id = $1 FOR UPDATE`,
+      [row.group_id]
     );
+
+    const activeCountRes = await client.query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total
+       FROM family_members
+       WHERE family_group_id = $1 AND is_active = TRUE`,
+      [row.group_id]
+    );
+    activeMembersBefore = Number(activeCountRes.rows[0]?.total ?? '0');
+
+    const existingMembership = await client.query<{ is_active: boolean }>(
+      `SELECT is_active FROM family_members
+       WHERE family_group_id = $1 AND customer_id = $2 LIMIT 1`,
+      [row.group_id, params.customerId]
+    );
+    alreadyActive = Boolean(existingMembership.rows[0]?.is_active);
+
+    if (!alreadyActive && activeMembersBefore >= memberLimit) {
+      await client.query('ROLLBACK');
+      throw new Error('family_group_full');
+    }
+
+    await client.query(
+      `INSERT INTO family_members (family_group_id, customer_id, role, is_active)
+       VALUES ($1, $2, 'member', TRUE)
+       ON CONFLICT (family_group_id, customer_id)
+       DO UPDATE SET is_active = TRUE`,
+      [row.group_id, params.customerId]
+    );
+
+    if (inviteMode === 'single_use' && row.invite_id && !alreadyActive) {
+      await client.query(
+        `UPDATE family_invites SET used_count = used_count + 1 WHERE id = $1`,
+        [row.invite_id]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
   }
 
   const activeMembers = alreadyActive ? activeMembersBefore : activeMembersBefore + 1;

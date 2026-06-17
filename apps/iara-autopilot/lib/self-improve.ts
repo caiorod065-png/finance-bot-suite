@@ -302,11 +302,11 @@ export async function runSelfImprovement(triggerReason: string): Promise<Improve
     };
   }
 
-  await activatePrompt(candidatePrompt.id);
-
   const autoDeployEnabled = env.AUTOPILOT_AUTO_DEPLOY === "true";
 
   if (!autoDeployEnabled) {
+    // Gate: only activate the prompt in DB when auto-deploy is enabled.
+    // When disabled, the candidate stays in "candidate" status until manual approval.
     const runId = await saveImprovementRun({
       triggerReason,
       status: "improved",
@@ -315,13 +315,13 @@ export async function runSelfImprovement(triggerReason: string): Promise<Improve
       baselineScore: baselineEval.score,
       candidateScore: effectiveCandidateScore,
       deployId: null,
-      summary: "Prompt melhorado — deploy pendente de aprovação manual (AUTOPILOT_AUTO_DEPLOY=false)",
+      summary: "Prompt melhorado — deploy e ativação pendentes de aprovação manual (AUTOPILOT_AUTO_DEPLOY=false)",
       details: { gain, critique, candidateSummary: candidate.changeSummary, validatorResults, baselineEval, candidateEval, candidateEmbeddingPreview: candidateEmbedding.slice(0, 8) }
     });
     return {
       runId,
       status: "improved",
-      reason: "Prompt promovido — deploy aguarda aprovação manual",
+      reason: "Prompt promovido — ativação e deploy aguardam aprovação manual",
       baselineScore: baselineEval.score,
       candidateScore: effectiveCandidateScore,
       candidatePromptId: candidatePrompt.id,
@@ -329,8 +329,37 @@ export async function runSelfImprovement(triggerReason: string): Promise<Improve
     };
   }
 
+  // Activate in DB only when we're about to deploy
+  await activatePrompt(candidatePrompt.id);
+
   const projectRoot = path.resolve(process.cwd());
-  const deployment = await deployToVercel(projectRoot);
+  let deployment: Awaited<ReturnType<typeof deployToVercel>>;
+  try {
+    deployment = await deployToVercel(projectRoot);
+  } catch (deployError) {
+    // Deploy failed after prompt was already activated — save audit record so state is traceable
+    const runId = await saveImprovementRun({
+      triggerReason,
+      status: "improved",
+      baselinePromptId: active.id,
+      candidatePromptId: candidatePrompt.id,
+      baselineScore: baselineEval.score,
+      candidateScore: effectiveCandidateScore,
+      deployId: null,
+      summary: "Prompt ativado mas deploy falhou",
+      details: { gain, critique, candidateSummary: candidate.changeSummary, validatorResults, baselineEval, candidateEval,
+        deployError: deployError instanceof Error ? deployError.message : String(deployError) }
+    });
+    return {
+      runId,
+      status: "improved",
+      reason: "Prompt ativado mas deploy falhou — verifique os logs",
+      baselineScore: baselineEval.score,
+      candidateScore: effectiveCandidateScore,
+      candidatePromptId: candidatePrompt.id,
+      deployed: false
+    };
+  }
 
   const runId = await saveImprovementRun({
     triggerReason,
